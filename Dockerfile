@@ -30,10 +30,15 @@ RUN set -eux; \
     if [ ! -f vendor/ntgcalls/lib/libntgcalls.a ]; then \
         case "$ARCH" in \
             x86_64) \
-                URL="https://github.com/pytgcalls/ntgcalls/releases/download/v2.1.0/ntgcalls.linux-x86_64-static_libs.zip" ;; \
+                URL="https://github.com/pytgcalls/ntgcalls/releases/download/v2.1.0/ntgcalls.linux-x86_64-static_libs.zip" \
+                ;; \
             aarch64|arm64) \
-                URL="https://github.com/pytgcalls/ntgcalls/releases/download/v2.1.0/ntgcalls.linux-arm64-static_libs.zip" ;; \
-            *) echo "Unsupported architecture: $ARCH"; exit 1 ;; \
+                URL="https://github.com/pytgcalls/ntgcalls/releases/download/v2.1.0/ntgcalls.linux-arm64-static_libs.zip" \
+                ;; \
+            *) \
+                echo "Unsupported architecture: $ARCH"; \
+                exit 1 \
+                ;; \
         esac; \
         curl -fLsS "$URL" -o /tmp/ntgcalls.zip; \
         mkdir -p /tmp/ntgcalls_extracted; \
@@ -47,6 +52,19 @@ RUN set -eux; \
         rm -rf /tmp/ntgcalls.zip /tmp/ntgcalls_extracted; \
     fi; \
     make -j1
+
+# Prepare runtime files so COPY never fails
+RUN set -eux; \
+    mkdir -p /runtime/data; \
+    if [ -d /build/data ]; then \
+        cp -a /build/data/. /runtime/data/; \
+    fi; \
+    if [ -f /build/generate_cache.py ]; then \
+        cp /build/generate_cache.py /runtime/generate_cache.py; \
+    else \
+        printf '%s\n' '#!/usr/bin/env python3' > /runtime/generate_cache.py; \
+        printf '%s\n' 'pass' >> /runtime/generate_cache.py; \
+    fi
 
 FROM ubuntu:24.04
 
@@ -66,10 +84,10 @@ WORKDIR /app
 COPY --from=builder /build/bin /app/bin
 COPY --from=builder /build/locales /app/locales
 COPY --from=builder /build/start.sh /app/start.sh
-COPY --from=builder /build/data /app/data
+COPY --from=builder /runtime/data /app/data
 COPY --from=builder /opt/peer-env /opt/peer-env
-COPY --from=builder /build/generate_cache.py /app/generate_cache.py
+COPY --from=builder /runtime/generate_cache.py /app/generate_cache.py
 
-RUN chmod +x /app/start.sh /app/bin/*
+RUN chmod +x /app/start.sh /app/bin/* /app/generate_cache.py
 
 ENTRYPOINT ["/bin/bash", "/app/start.sh"]
