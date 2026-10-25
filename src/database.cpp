@@ -59,9 +59,12 @@ void Database::Init() {
 
     mongoc_client_t* client = mongoc_client_new_from_uri(uri);
     const char* uri_database = mongoc_uri_get_database(uri);
-    std::string database_name = GetEnv("MONGO_DB_NAME");
-    if (database_name.empty() && uri_database && *uri_database) {
+    std::string database_name;
+    if (uri_database && *uri_database) {
         database_name = uri_database;
+    }
+    if (database_name.empty()) {
+        database_name = GetEnv("MONGO_DB_NAME");
     }
     if (database_name.empty()) {
         database_name = kDefaultMongoDatabase;
