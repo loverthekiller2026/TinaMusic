@@ -7,32 +7,24 @@ cd "$SCRIPT_DIR"
 
 mkdir -p "$SCRIPT_DIR/data"
 
-# Restore the cache copied into the image if the runtime cache is missing.
-if [ ! -s "$SCRIPT_DIR/data/peer_cache.json" ] && \
-   [ -s "/app/data/peer_cache.json" ]; then
-    cp "/app/data/peer_cache.json" "$SCRIPT_DIR/data/peer_cache.json"
+# Regenerate the peer cache on every startup.
+echo "[SYSTEM] [STARTUP] Regenerating peer cache..."
+
+if [ ! -f "$SCRIPT_DIR/generate_cache.py" ]; then
+    echo "[ERROR] generate_cache.py is missing."
+    exit 1
 fi
 
-# Generate the peer cache if it does not exist.
+if [ ! -x "/opt/peer-env/bin/python" ]; then
+    echo "[ERROR] Python virtual environment not found."
+    exit 1
+fi
+
+/opt/peer-env/bin/python "$SCRIPT_DIR/generate_cache.py"
+
 if [ ! -s "$SCRIPT_DIR/data/peer_cache.json" ]; then
-    echo "[SYSTEM] [STARTUP] Peer cache missing; generating it..."
-
-    if [ ! -f "$SCRIPT_DIR/generate_cache.py" ]; then
-        echo "[ERROR] generate_cache.py is missing."
-        exit 1
-    fi
-
-    if [ ! -x "/opt/peer-env/bin/python" ]; then
-        echo "[ERROR] Python virtual environment not found."
-        exit 1
-    fi
-
-    /opt/peer-env/bin/python "$SCRIPT_DIR/generate_cache.py"
-
-    if [ ! -s "$SCRIPT_DIR/data/peer_cache.json" ]; then
-        echo "[ERROR] Peer cache generation failed."
-        exit 1
-    fi
+    echo "[ERROR] Peer cache generation failed or produced an empty file."
+    exit 1
 fi
 
 echo "[SYSTEM] [STARTUP] Peer cache status:"
@@ -44,7 +36,7 @@ python3 /app/health_server.py &
 
 HEALTH_PID=$!
 
-# Stop the container if the health server exits unexpectedly.
+# Check whether the health server starts successfully.
 sleep 1
 if ! kill -0 "$HEALTH_PID" 2>/dev/null; then
     echo "[ERROR] HTTP health server failed to start."
