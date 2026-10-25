@@ -1,6 +1,8 @@
 CXX = g++
-CXXFLAGS = -std=c++20 -O2 -Wall -Wextra -pthread -Iinclude -Ivendor/ntgcalls/include -I/usr/include
-LDFLAGS = -Lvendor/ntgcalls/lib -lntgcalls -lyaml-cpp -lcurl -lpthread -ldl -lz -lresolv
+MONGO_CFLAGS = $(shell pkg-config --cflags libmongoc-1.0)
+MONGO_LIBS = $(shell pkg-config --libs libmongoc-1.0)
+CXXFLAGS = -std=c++20 -O2 -Wall -Wextra -pthread -Iinclude -Ivendor/ntgcalls/include -I/usr/include $(MONGO_CFLAGS)
+LDFLAGS = -Lvendor/ntgcalls/lib -lntgcalls -lyaml-cpp -lcurl -lpthread -ldl -lz -lresolv $(MONGO_LIBS)
 
 SRCDIR = src
 INCDIR = include
@@ -19,7 +21,7 @@ $(TARGET): $(OBJECTS)
 	@mkdir -p $(BINDIR)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 	@ln -sf tina-music-bot $(BINDIR)/yukki-music-bot
-	@echo "Build complete: $(TARGET) (100% Pure C++20 Single Binary)"
+	@echo "Build complete: $(TARGET) (C++20 with MongoDB persistence support)"
 
 $(BINDIR)/%.o: $(SRCDIR)/%.cpp
 	@mkdir -p $(dir $@)
@@ -31,7 +33,7 @@ test: $(TEST_TARGET)
 
 $(TEST_TARGET): $(TESTDIR)/test_full.cpp $(BINDIR)/queue_manager.o $(BINDIR)/logger.o $(BINDIR)/database.o $(BINDIR)/locales.o
 	@mkdir -p $(BINDIR)
-	$(CXX) $(CXXFLAGS) -o $@ $^ -lyaml-cpp -lpthread
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lyaml-cpp -lpthread $(MONGO_LIBS)
 
 clean:
 	rm -rf $(BINDIR)
