@@ -77,7 +77,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
+EXPOSE 10000
 COPY --from=builder /build/bin /app/bin
 COPY --from=builder /build/locales /app/locales
 COPY --from=builder /build/start.sh /app/start.sh
