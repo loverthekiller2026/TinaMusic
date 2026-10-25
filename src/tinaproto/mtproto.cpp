@@ -428,23 +428,55 @@ bool MtprotoClient::LoadPeerCache(const std::string& cache_path) {
     }
 }
 
-bool MtprotoClient::ResolveChannel(int64_t chat_id, int64_t& out_channel_id, int64_t& out_access_hash) {
+
+bool MtprotoClient::ResolveChannel(
+    int64_t chat_id,
+    int64_t& out_channel_id,
+    int64_t& out_access_hash
+) {
     int64_t channel_id = chat_id;
+
     if (channel_id < 0) {
         channel_id = -channel_id;
     }
+
     if (channel_id > 1000000000000LL) {
         channel_id -= 1000000000000LL;
     }
+
     out_channel_id = channel_id;
 
+    Logger::Info(
+        "TINAPROTO",
+        "Resolving chat_id=" + std::to_string(chat_id) +
+        ", channel_id=" + std::to_string(channel_id) +
+        ", cached_channels=" +
+        std::to_string(channel_access_hashes_.size())
+    );
+
     auto it = channel_access_hashes_.find(channel_id);
+
     if (it != channel_access_hashes_.end()) {
         out_access_hash = it->second;
+
+        Logger::Info(
+            "TINAPROTO",
+            "Channel access hash resolved for channel " +
+            std::to_string(channel_id)
+        );
+
         return true;
     }
+
+    Logger::Error(
+        "TINAPROTO",
+        "Channel ID " + std::to_string(channel_id) +
+        " is not present in the peer cache"
+    );
+
     return false;
 }
+
 
 std::optional<InputGroupCall> MtprotoClient::GetGroupCall(int64_t chat_id) {
     auto git = group_calls_.find(chat_id);
