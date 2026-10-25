@@ -1,4 +1,3 @@
-
 FROM ubuntu:24.04 AS builder
 
 WORKDIR /build
@@ -13,6 +12,8 @@ RUN apt-get update && \
         libyaml-cpp-dev \
         zlib1g-dev \
         nlohmann-json3-dev \
+        libmongoc-dev \
+        pkg-config \
         curl \
         unzip \
         ca-certificates \
@@ -49,7 +50,6 @@ RUN set -eux; \
     fi; \
     make -j1
 
-# Validate required files and prepare runtime data.
 RUN set -eux; \
     test -f /build/start.sh; \
     test -f /build/health_server.py; \
@@ -70,6 +70,7 @@ RUN apt-get update && \
         ca-certificates \
         libcurl4 \
         libyaml-cpp0.8 \
+        libmongoc-1.0-0 \
         zlib1g \
         python3 && \
     rm -rf /var/lib/apt/lists/*
