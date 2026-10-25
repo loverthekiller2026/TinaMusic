@@ -9,6 +9,8 @@ include_directories(include vendor/ntgcalls/include /usr/include)
 link_directories(vendor/ntgcalls/lib)
 
 find_package(CURL REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(MONGOC REQUIRED IMPORTED_TARGET libmongoc-1.0)
 
 set(SOURCES
     src/logger.cpp
@@ -26,7 +28,7 @@ set(SOURCES
 )
 
 add_executable(tina-music-bot ${SOURCES})
-target_link_libraries(tina-music-bot PRIVATE CURL::libcurl ntgcalls yaml-cpp pthread dl z resolv)
+target_link_libraries(tina-music-bot PRIVATE CURL::libcurl PkgConfig::MONGOC ntgcalls yaml-cpp pthread dl z resolv)
 
 add_executable(test_full tests/test_full.cpp src/queue_manager.cpp src/logger.cpp src/database.cpp src/locales.cpp)
-target_link_libraries(test_full PRIVATE yaml-cpp pthread)
+target_link_libraries(test_full PRIVATE PkgConfig::MONGOC yaml-cpp pthread)
