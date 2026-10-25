@@ -49,20 +49,18 @@ RUN set -eux; \
     fi; \
     make -j1
 
-# Validate required runtime files; do not create fake application scripts.
+# Validate required files and prepare runtime data.
 RUN set -eux; \
-    test -x /build/start.sh || test -f /build/start.sh; \
-    test -x /build/bin/tina-music-bot || test -f /build/bin/tina-music-bot; \
+    test -f /build/start.sh; \
+    test -f /build/health_server.py; \
+    test -f /build/generate_cache.py; \
+    test -f /build/bin/tina-music-bot; \
     test -d /build/locales; \
-    if [ ! -f /build/generate_cache.py ]; then \
-        echo "ERROR: generate_cache.py is missing from the project root."; \
-        exit 1; \
-    fi; \
     mkdir -p /runtime/data; \
     if [ -d /build/data ]; then \
         cp -a /build/data/. /runtime/data/; \
     fi
-    
+
 FROM ubuntu:24.04
 
 RUN apt-get update && \
@@ -77,10 +75,13 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
 EXPOSE 10000
+
 COPY --from=builder /build/bin /app/bin
 COPY --from=builder /build/locales /app/locales
 COPY --from=builder /build/start.sh /app/start.sh
+COPY --from=builder /build/health_server.py /app/health_server.py
 COPY --from=builder /runtime/data /app/data
 COPY --from=builder /opt/peer-env /opt/peer-env
 COPY --from=builder /build/generate_cache.py /app/generate_cache.py
