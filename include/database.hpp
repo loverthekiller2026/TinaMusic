@@ -1,6 +1,6 @@
-
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -27,7 +27,10 @@ class Database {
 public:
     static Database& Instance();
 
-    void Init(const std::string& db_path = "data/bot_database.json");
+    // Uses MongoDB when MONGO_DB_URI is configured; otherwise uses local JSON.
+    void Init();
+    // Explicit path always selects local JSON storage (used by tests/tools).
+    void Init(const std::string& db_path);
 
     ChatConfig GetChatConfig(int64_t chat_id);
     void SetChatConfig(int64_t chat_id, const ChatConfig& cfg);
@@ -80,5 +83,8 @@ private:
     std::string maintenance_reason_{""};
     bool logger_enabled_{false};
     bool autoleave_enabled_{false};
+    void* mongo_client_{nullptr};
+    void* mongo_collection_{nullptr};
+    bool mongo_enabled_{false};
     std::mutex db_mutex_;
 };
