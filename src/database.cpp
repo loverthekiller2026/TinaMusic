@@ -1,59 +1,118 @@
 /*
- * ============================================================================
- *   ████████╗██╗███╗   ██╗ █████╗ ███╗   ███╗██╗   ██╗███████╗██╗ ██████╗
- *   ╚══██╔══╝██║████╗  ██║██╔══██╗████╗ ████║██║   ██║██╔════╝██║██╔════╝
- *      ██║   ██║██╔██╗ ██║███████║██╔████╔██║██║   ██║███████╗██║██║     
- *      ██║   ██║██║╚██╗██║██╔══██║██║╚██╔╝██║██║   ██║╚════██║██║██║     
- *      ██║   ██║██║ ╚████║██║  ██║██║ ╚═╝ ██║╚██████╔╝███████║██║╚██████╗
- *      ╚═╝   ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚══════╝╚═╝ ╚═════╝
- * ============================================================================
- *
- * Project: TinaMusic - Telegram's First Native C++20 Music Bot Engine
- * Architecture: Native C++20 Core + Go MTProto WebRTC Voice Bridge
- * Copyright (C) 2026 SUDEEPBOTS / TinaMusic Contributors
- * Support: https://t.me/Z0iiw
- *
- * ----------------------------------------------------------------------------
- * LEGAL NOTICE & LICENSE (GNU Affero General Public License v3.0):
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <https://www.gnu.org/licenses/>.
- *
- * STRICT COPYLEFT CLAUSE:
- * In accordance with Section 13 of the GNU AGPLv3, if you modify this program
- * or run it as a network service (e.g., hosted on servers, Telegram, or cloud),
- * you MUST make the complete source code of your modified version available
- * to all users under the exact same AGPLv3 license terms.
- * Closed-source derivatives or rebranded copies are strictly prohibited.
- * ============================================================================
+ * TinaMusic database backend.
+ * Copyright (C) 2026 TinaMusic Contributors
+ * Licensed under the GNU Affero General Public License v3.0 or later.
  */
 
 #include "database.hpp"
 #include "logger.hpp"
+
 #include <fstream>
+#include <cstdlib>
+#include <cstdio>
+#include <stdexcept>
 #include <sys/stat.h>
+#include <bson/bson.h>
+#include <mongoc/mongoc.h>
+
+namespace {
+constexpr const char* kMongoDocumentId = "tinamusic_state";
+constexpr const char* kDefaultMongoDatabase = "tinamusic";
+constexpr const char* kMongoCollection = "bot_state";
+
+std::string GetEnv(const char* name) {
+    const char* value = std::getenv(name);
+    return value ? std::string(value) : std::string();
+}
+}
 
 Database& Database::Instance() {
     static Database instance;
     return instance;
 }
 
+void Database::Init() {
+    const std::string mongo_uri = GetEnv("MONGO_DB_URI");
+    if (mongo_uri.empty()) {
+        Init("data/bot_database.json");
+        Logger::Info("DATABASE", "MONGO_DB_URI not set; using local JSON storage.");
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(db_mutex_);
+    db_file_path_ = "data/bot_database.json";
+    mkdir("data", 0755);
+
+    static const bool mongo_initialized = [] {
+        mongoc_init();
+        return true;
+    }();
+    (void)mongo_initialized;
+
+    bson_error_t error{};
+    mongoc_uri_t* uri = mongoc_uri_new_with_error(mongo_uri.c_str(), &error);
+    if (!uri) {
+        const std::string message = std::string("Invalid MONGO_DB_URI: ") + error.message;
+        Logger::Error("DATABASE", message);
+        throw std::runtime_error(message);
+    }
+
+    mongoc_client_t* client = mongoc_client_new_from_uri(uri);
+    const char* uri_database = mongoc_uri_get_database(uri);
+    std::string database_name = GetEnv("MONGO_DB_NAME");
+    if (database_name.empty() && uri_database && *uri_database) {
+        database_name = uri_database;
+    }
+    if (database_name.empty()) {
+        database_name = kDefaultMongoDatabase;
+    }
+    mongoc_uri_destroy(uri);
+
+    if (!client) {
+        Logger::Error("DATABASE", "Could not create MongoDB client.");
+        throw std::runtime_error("Could not create MongoDB client.");
+    }
+
+    bson_t command;
+    bson_t reply;
+    bson_init(&command);
+    bson_init(&reply);
+    BSON_APPEND_INT32(&command, "ping", 1);
+    const bool ping_ok = mongoc_client_command_simple(
+        client, database_name.c_str(), &command, nullptr, &reply, &error);
+    bson_destroy(&command);
+    bson_destroy(&reply);
+    if (!ping_ok) {
+        const std::string message = std::string("MongoDB connection failed: ") + error.message;
+        Logger::Error("DATABASE", message);
+        mongoc_client_destroy(client);
+        throw std::runtime_error(message);
+    }
+
+    mongoc_collection_t* collection =
+        mongoc_client_get_collection(client, database_name.c_str(), kMongoCollection);
+    if (!collection) {
+        mongoc_client_destroy(client);
+        Logger::Error("DATABASE", "Could not open MongoDB collection.");
+        throw std::runtime_error("Could not open MongoDB collection.");
+    }
+
+    mongo_client_ = client;
+    mongo_collection_ = collection;
+    mongo_enabled_ = true;
+    LoadFromDisk();
+    Logger::Info("DATABASE", "MongoDB connected. Loaded " +
+                 std::to_string(served_chats_.size()) + " active chats.");
+}
+
 void Database::Init(const std::string& db_path) {
     std::lock_guard<std::mutex> lock(db_mutex_);
     db_file_path_ = db_path;
+    mongo_enabled_ = false;
     mkdir("data", 0755);
     LoadFromDisk();
-    Logger::Info("DATABASE", "Database engine initialized. Loaded " + std::to_string(served_chats_.size()) + " active chats.");
+    Logger::Info("DATABASE", "Local JSON database initialized. Loaded " +
+                 std::to_string(served_chats_.size()) + " active chats.");
 }
 
 void Database::SaveToDisk() {
@@ -87,21 +146,117 @@ void Database::SaveToDisk() {
     root["chat_configs"] = chatsJson;
     root["served_chats"] = served_chats_;
 
-    std::string tmpPath = db_file_path_ + ".tmp";
+    if (mongo_enabled_ && mongo_collection_) {
+        const std::string serialized = root.dump();
+        bson_error_t error{};
+        bson_t* replacement = bson_new_from_json(
+            reinterpret_cast<const uint8_t*>(serialized.c_str()),
+            static_cast<ssize_t>(serialized.size()), &error);
+        if (!replacement) {
+            Logger::Error("DATABASE", std::string("Could not encode MongoDB state: ") + error.message);
+            return;
+        }
+        BSON_APPEND_UTF8(replacement, "_id", kMongoDocumentId);
+
+        bson_t filter;
+        bson_init(&filter);
+        BSON_APPEND_UTF8(&filter, "_id", kMongoDocumentId);
+        bson_t reply;
+        bson_init(&reply);
+        const bool ok = mongoc_collection_replace_one(
+            static_cast<mongoc_collection_t*>(mongo_collection_), &filter,
+            replacement, nullptr, &reply, &error);
+        bson_destroy(&filter);
+        bson_destroy(replacement);
+        bson_destroy(&reply);
+        if (!ok) {
+            Logger::Error("DATABASE", std::string("MongoDB save failed: ") + error.message);
+        }
+        return;
+    }
+
+    const std::string tmpPath = db_file_path_ + ".tmp";
     std::ofstream ofs(tmpPath);
     if (ofs.is_open()) {
         ofs << root.dump(2);
         ofs.close();
-        rename(tmpPath.c_str(), db_file_path_.c_str());
+        if (std::rename(tmpPath.c_str(), db_file_path_.c_str()) != 0) {
+            Logger::Error("DATABASE", "Could not replace local database file.");
+        }
+    } else {
+        Logger::Error("DATABASE", "Could not open local database file for writing.");
     }
 }
 
 void Database::LoadFromDisk() {
-    std::ifstream ifs(db_file_path_);
-    if (!ifs.is_open()) return;
+    nlohmann::json root;
+    bool have_state = false;
+    bool migrate_local_state = false;
+    bool mongo_read_failed = false;
+
+    if (mongo_enabled_ && mongo_collection_) {
+        bson_t filter;
+        bson_init(&filter);
+        BSON_APPEND_UTF8(&filter, "_id", kMongoDocumentId);
+        mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(
+            static_cast<mongoc_collection_t*>(mongo_collection_), &filter, nullptr, nullptr);
+        const bson_t* document = nullptr;
+        if (cursor && mongoc_cursor_next(cursor, &document) && document) {
+            size_t json_length = 0;
+            char* json_text = bson_as_relaxed_extended_json(document, &json_length);
+            if (json_text) {
+                try {
+                    root = nlohmann::json::parse(json_text, json_text + json_length);
+                    root.erase("_id");
+                    have_state = true;
+                } catch (const std::exception& e) {
+                    Logger::Error("DATABASE", std::string("MongoDB state parse failed: ") + e.what());
+                    mongo_read_failed = true;
+                }
+                bson_free(json_text);
+            }
+        }
+        if (cursor) {
+            bson_error_t cursor_error{};
+            if (mongoc_cursor_error(cursor, &cursor_error)) {
+                Logger::Error("DATABASE", std::string("MongoDB read failed: ") + cursor_error.message);
+                mongo_read_failed = true;
+            }
+            mongoc_cursor_destroy(cursor);
+        }
+        bson_destroy(&filter);
+
+        if (mongo_read_failed) {
+            throw std::runtime_error("Could not read TinaMusic state from MongoDB.");
+        }
+
+        if (!have_state) {
+            std::ifstream ifs(db_file_path_);
+            if (ifs.is_open()) {
+                try {
+                    ifs >> root;
+                    have_state = true;
+                    migrate_local_state = true;
+                    Logger::Info("DATABASE", "Importing existing local JSON data into MongoDB.");
+                } catch (const std::exception& e) {
+                    Logger::Error("DATABASE", std::string("Local JSON migration read failed: ") + e.what());
+                }
+            }
+        }
+    } else {
+        std::ifstream ifs(db_file_path_);
+        if (!ifs.is_open()) return;
+        try {
+            ifs >> root;
+            have_state = true;
+        } catch (const std::exception& e) {
+            Logger::Error("DATABASE", std::string("Failed to parse disk database: ") + e.what());
+        }
+    }
+
+    if (!have_state) return;
 
     try {
-        nlohmann::json root = nlohmann::json::parse(ifs);
         total_plays_ = root.value("total_plays", 0LL);
         maintenance_mode_ = root.value("maintenance_mode", false);
         maintenance_reason_ = root.value("maintenance_reason", "");
@@ -119,7 +274,7 @@ void Database::LoadFromDisk() {
         }
         if (root.contains("chat_configs")) {
             for (auto& [key, val] : root["chat_configs"].items()) {
-                int64_t cid = std::stoll(key);
+                const int64_t cid = std::stoll(key);
                 ChatConfig cfg;
                 cfg.volume = val.value("volume", 100);
                 cfg.play_mode = val.value("play_mode", "Everyone");
@@ -140,16 +295,19 @@ void Database::LoadFromDisk() {
             }
         }
     } catch (const std::exception& e) {
-        Logger::Error("DATABASE", std::string("Failed to parse disk database: ") + e.what());
+        Logger::Error("DATABASE", std::string("Failed to load database state: ") + e.what());
+        throw;
+    }
+
+    if (migrate_local_state) {
+        SaveToDisk();
     }
 }
 
 ChatConfig Database::GetChatConfig(int64_t chat_id) {
     std::lock_guard<std::mutex> lock(db_mutex_);
     auto it = chat_configs_.find(chat_id);
-    if (it != chat_configs_.end()) {
-        return it->second;
-    }
+    if (it != chat_configs_.end()) return it->second;
     ChatConfig def;
     chat_configs_[chat_id] = def;
     return def;
