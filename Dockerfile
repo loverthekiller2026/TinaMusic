@@ -62,7 +62,7 @@ RUN set -eux; \
     if [ -d /build/data ]; then \
         cp -a /build/data/. /runtime/data/; \
     fi
-
+    
 FROM ubuntu:24.04
 
 RUN apt-get update && \
