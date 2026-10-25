@@ -939,7 +939,7 @@ void BotEngine::HandleUserbotJoin(const TgMessage& msg) {
             {"inline_keyboard", {
                 {
                     {{"text", "➕ Add Assistant (@" + ass_user + ")", "url", "https://t.me/" + ass_user + "?startgroup=true"}},
-                    {{"text", "💬 Support", "url", "https://t.me/Z0iiw"}}
+                    {{"text", "💬 Support", "url", "https://t.me/sector_bot_support"}}
                 }
             }}
         };
