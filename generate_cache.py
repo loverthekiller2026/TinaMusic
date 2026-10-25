@@ -28,6 +28,11 @@ async def main():
             chat = dialog.chat
             try:
                 peer = await app.resolve_peer(chat.id)
+                print(
+                f"[PEER] chat_id={chat.id}, "
+                f"type={type(peer).__name__}, "
+                f"peer_id={getattr(peer, 'channel_id', getattr(peer, 'user_id', None))}"
+    )
             except Exception as exc:
                 print(f"Skipping peer {chat.id}: {exc}")
                 continue
