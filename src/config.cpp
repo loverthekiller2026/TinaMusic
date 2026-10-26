@@ -102,20 +102,10 @@ AppConfig ConfigLoader::Load(const std::string& env_path) {
         try { cfg.log_group_id = std::stoll(log_str); } catch (...) {}
     }
 
-    cfg.string_session = GetEnvVar("STRING_SESSIONS", GetEnvVar("STRING_SESSION", ""));
-    // STRING_SESSIONS accepts one session or a comma-separated session pool.
-    {
-        std::stringstream session_stream(cfg.string_session);
-        std::string session;
-        while (std::getline(session_stream, session, ',')) {
-            session = TrimString(session);
-            if (!session.empty()) cfg.string_sessions.push_back(session);
-        }
-        if (cfg.string_sessions.empty() && !cfg.string_session.empty()) {
-            cfg.string_sessions.push_back(cfg.string_session);
-        }
-        if (!cfg.string_sessions.empty()) cfg.string_session = cfg.string_sessions.front();
-    }
+    // Single-assistant mode: accept one session string only.
+    // Prefer STRING_SESSION; STRING_SESSIONS remains as a backward-compatible alias.
+    cfg.string_session = TrimString(GetEnvVar("STRING_SESSION", GetEnvVar("STRING_SESSIONS", "")));
+    if (!cfg.string_session.empty()) cfg.string_sessions.push_back(cfg.string_session);
     cfg.session_type = GetEnvVar("SESSION_TYPE", "pyrogram");
     cfg.support_chat = GetEnvVar("SUPPORT_CHAT", "https://t.me/Z0iiw");
     cfg.support_channel = GetEnvVar("SUPPORT_CHANNEL", "https://t.me/Z0iiw");

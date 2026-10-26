@@ -56,7 +56,7 @@ Traditional Telegram music bots written in Python (Pyrogram & PyTgCalls) suffer 
 1. Fork or clone this repository to your GitHub.
 2. Click the **Deploy to Heroku** button above or link your GitHub repo in the Heroku Dashboard.
 3. Heroku automatically detects `heroku.yml` and builds the optimized multi-stage Docker container.
-4. Fill in your environment variables (`API_ID`, `API_HASH`, `BOT_TOKEN`, `STRING_SESSIONS`, `OWNER_ID`).
+4. Fill in your environment variables (`API_ID`, `API_HASH`, `BOT_TOKEN`, `STRING_SESSION`, `OWNER_ID`).
 5. Scale your worker dyno in the **Resources** tab:
    ```bash
    heroku ps:scale worker=1
@@ -158,7 +158,7 @@ docker compose logs -f
 | `API_ID` | **Yes** | Telegram App API ID from [my.telegram.org](https://my.telegram.org) | `1234567` |
 | `API_HASH` | **Yes** | Telegram App API Hash from [my.telegram.org](https://my.telegram.org) | `abcdef0123456789...` |
 | `BOT_TOKEN` | **Yes** | Telegram Bot Token from [@BotFather](https://t.me/BotFather) | `123456:ABC-DEF...` |
-| `STRING_SESSIONS` | **Yes** | One Pyrogram session, or comma-separated independent Pyrogram session strings. Use one session per simultaneous voice chat. Each account must be in the target group and have access to its voice chat. | `SESSION_1,SESSION_2` |
+| `STRING_SESSION` | **Yes** | One Pyrogram assistant session string. This single account can play in one group voice chat at a time; it must be a member of the target group and have access to its voice chat. `STRING_SESSIONS` is accepted as a backward-compatible alias for a single value. | `YOUR_SESSION_STRING` |
 | `SESSION_TYPE` | No | Session string format (`pyrogram` or `telethon`, default: `pyrogram`) | `pyrogram` |
 | `OWNER_ID` | **Yes** | Telegram User ID of the primary owner | `620476130` |
 | `MONGO_DB_URI` | No | MongoDB URI for persistent settings & auth lists | `mongodb://...` |

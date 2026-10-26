@@ -33,29 +33,19 @@ echo "[SYSTEM] [STARTUP] Pyrogram dependency check passed."
 # Generate the Telegram peer cache.
 /opt/peer-env/bin/python "$SCRIPT_DIR/generate_cache.py"
 
-# Verify that every configured assistant has its own peer cache.
-SESSION_CONFIG="${STRING_SESSIONS:-${STRING_SESSION:-}}"
-IFS=',' read -r -a SESSION_LIST <<< "$SESSION_CONFIG"
-SESSION_INDEX=0
-for SESSION_VALUE in "${SESSION_LIST[@]}"; do
-    [ -z "${SESSION_VALUE//[[:space:]]/}" ] && continue
-    SESSION_INDEX=$((SESSION_INDEX + 1))
-    if [ "$SESSION_INDEX" -eq 1 ]; then
-        CACHE_FILE="$SCRIPT_DIR/data/peer_cache.json"
-    else
-        CACHE_FILE="$SCRIPT_DIR/data/peer_cache_${SESSION_INDEX}.json"
-    fi
-    if [ ! -s "$CACHE_FILE" ]; then
-        echo "[ERROR] Missing or empty peer cache for assistant session $SESSION_INDEX: $CACHE_FILE"
-        exit 1
-    fi
-    ls -lh "$CACHE_FILE"
-done
-if [ "$SESSION_INDEX" -eq 0 ]; then
-    echo "[ERROR] No STRING_SESSIONS configured."
+# Verify the peer cache for the single configured assistant session.
+SESSION_VALUE="${STRING_SESSION:-${STRING_SESSIONS:-}}"
+if [ -z "${SESSION_VALUE//[[:space:]]/}" ]; then
+    echo "[ERROR] Set STRING_SESSION to one valid Pyrogram session string."
     exit 1
 fi
-echo "[SYSTEM] [STARTUP] Peer caches ready for $SESSION_INDEX assistant session(s)."
+CACHE_FILE="$SCRIPT_DIR/data/peer_cache.json"
+if [ ! -s "$CACHE_FILE" ]; then
+    echo "[ERROR] Missing or empty peer cache: $CACHE_FILE"
+    exit 1
+fi
+ls -lh "$CACHE_FILE"
+echo "[SYSTEM] [STARTUP] Single assistant peer cache ready."
 
 # Start the Render HTTP health server.
 echo "[SYSTEM] [STARTUP] Starting HTTP health server..."

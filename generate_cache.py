@@ -327,16 +327,14 @@ async def build_cache(session_string, cache_path):
 
 
 async def main():
-    configured = os.environ.get("STRING_SESSIONS", os.environ.get("STRING_SESSION", ""))
-    sessions = [item.strip() for item in configured.split(",") if item.strip()]
-    if not sessions:
-        raise RuntimeError("STRING_SESSIONS must contain at least one assistant session string")
+    # TinaMusic is configured to use one assistant account/session.
+    session_string = os.environ.get("STRING_SESSION", os.environ.get("STRING_SESSIONS", "")).strip()
+    if not session_string:
+        raise RuntimeError("STRING_SESSION is required (one Pyrogram session string)")
 
-    for index, session_string in enumerate(sessions, start=1):
-        cache_name = "peer_cache.json" if index == 1 else f"peer_cache_{index}.json"
-        cache_path = os.path.join(DATA_DIR, cache_name)
-        print(f"\n[CACHE] Building peer cache for assistant session {index}/{len(sessions)}")
-        await build_cache(session_string, cache_path)
+    cache_path = os.path.join(DATA_DIR, "peer_cache.json")
+    print("\n[CACHE] Building peer cache for the single assistant session")
+    await build_cache(session_string, cache_path)
 
 
 if __name__ == "__main__":
