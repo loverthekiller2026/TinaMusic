@@ -20,11 +20,15 @@ RUN apt-get update && \
         python3-venv && \
     rm -rf /var/lib/apt/lists/*
 
+# Create the Python environment used by generate_cache.py.
 RUN python3 -m venv /opt/peer-env && \
-    /opt/peer-env/bin/pip install --no-cache-dir Pyrogram==2.0.106
+    /opt/peer-env/bin/python -m pip install --no-cache-dir \
+        Pyrogram==2.0.106
 
 COPY . .
 
+# Download the required static ntgcalls library if it is missing,
+# then compile the C++20 application.
 RUN set -eux; \
     ARCH="$(uname -m)"; \
     mkdir -p vendor/ntgcalls/lib vendor/ntgcalls/include; \
@@ -49,17 +53,20 @@ RUN set -eux; \
     fi; \
     make -j1
 
-# Validate required files and prepare runtime data.
+# Validate build outputs and prepare runtime data.
 RUN set -eux; \
     test -f /build/start.sh; \
     test -f /build/health_server.py; \
     test -f /build/generate_cache.py; \
-    test -f /build/bin/tina-music-bot; \
+    test -x /build/bin/tina-music-bot || \
+        chmod +x /build/bin/tina-music-bot; \
     test -d /build/locales; \
     mkdir -p /runtime/data; \
     if [ -d /build/data ]; then \
         cp -a /build/data/. /runtime/data/; \
-    fi
+    fi; \
+    /opt/peer-env/bin/python -c \
+        "import pyrogram; print('Pyrogram builder check passed:', pyrogram.__version__)"
 
 FROM ubuntu:24.04
 
@@ -71,7 +78,10 @@ RUN apt-get update && \
         libcurl4 \
         libyaml-cpp0.8 \
         zlib1g \
-        python3 && \
+        libstdc++6 \
+        libgcc-s1 \
+        python3 \
+        python3-venv && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -86,6 +96,14 @@ COPY --from=builder /runtime/data /app/data
 COPY --from=builder /opt/peer-env /opt/peer-env
 COPY --from=builder /build/generate_cache.py /app/generate_cache.py
 
-RUN chmod +x /app/start.sh /app/bin/*
+# Verify Pyrogram in the final runtime image.
+RUN set -eux; \
+    test -x /opt/peer-env/bin/python; \
+    /opt/peer-env/bin/python -c \
+        "import pyrogram; print('Pyrogram runtime check passed:', pyrogram.__version__)"; \
+    test -f /app/health_server.py; \
+    test -f /app/generate_cache.py; \
+    test -x /app/bin/tina-music-bot; \
+    chmod +x /app/start.sh
 
 ENTRYPOINT ["/bin/bash", "/app/start.sh"]
