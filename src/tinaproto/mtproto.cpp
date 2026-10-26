@@ -175,40 +175,86 @@ bool MtprotoClient::SendPacket(const std::vector<uint8_t>& payload, int32_t seq_
 }
 
 std::vector<uint8_t> MtprotoClient::ReceivePacket() {
-    uint32_t resp_len = 0;
-    ssize_t r = recv(sock_, &resp_len, 4, MSG_WAITALL);
-    if (r != 4) {
-        Logger::Error("TINAPROTO", "recv header failed: r=" + std::to_string(r) + " errno=" + std::to_string(errno) + " (" + strerror(errno) + ")");
+    if (sock_ < 0 || !connected_) {
         return {};
     }
-    if (resp_len < 24) {
-        std::vector<uint8_t> err_buf(resp_len);
-        if (resp_len > 0) {
-            recv(sock_, err_buf.data(), resp_len, MSG_WAITALL);
+
+    // Intermediate transport is a byte stream: recv(MSG_WAITALL) can still
+    // return a partial header/body on timeout. Never discard partial bytes and
+    // then treat the next byte as a new packet header.
+    auto read_exact = [this](uint8_t* dst, size_t length, bool allow_idle_timeout,
+                             size_t& received) -> bool {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+        received = 0;
+        while (received < length) {
+            ssize_t n = recv(sock_, dst + received, length - received, 0);
+            if (n > 0) {
+                received += static_cast<size_t>(n);
+                continue;
+            }
+            if (n == 0) {
+                return false;
+            }
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                if (allow_idle_timeout && received == 0) {
+                    return false; // No bytes of a new packet arrived; caller may keep waiting.
+                }
+                if (std::chrono::steady_clock::now() < deadline) {
+                    continue; // Preserve any partial header/body and finish the frame.
+                }
+            }
+            return false;
         }
-        std::string err_hex;
-        for (auto b : err_buf) {
-            char h[4];
-            snprintf(h, sizeof(h), "%02x ", b);
-            err_hex += h;
+        return true;
+    };
+
+    uint8_t header[4]{};
+    size_t header_received = 0;
+    if (!read_exact(header, sizeof(header), true, header_received)) {
+        if (header_received != 0) {
+            Logger::Error("TINAPROTO", "Timed out/incomplete MTProto packet header; closing desynchronized transport");
+            close(sock_);
+            sock_ = -1;
+            connected_ = false;
         }
-        Logger::Error("TINAPROTO", "Received short packet resp_len=" + std::to_string(resp_len) + " payload_hex=[" + err_hex + "]");
+        return {};
+    }
+
+    uint32_t resp_len = 0;
+    std::memcpy(&resp_len, header, sizeof(resp_len));
+    constexpr uint32_t kMaxPacketSize = 64 * 1024 * 1024;
+    if (resp_len < 24 || resp_len > kMaxPacketSize) {
+        Logger::Error("TINAPROTO", "Invalid MTProto packet length: " + std::to_string(resp_len));
+        close(sock_);
+        sock_ = -1;
+        connected_ = false;
         return {};
     }
 
     std::vector<uint8_t> resp_buf(resp_len);
-    size_t received = 0;
-    while (received < resp_len) {
-        ssize_t n = recv(sock_, resp_buf.data() + received, resp_len - received, 0);
-        if (n <= 0) break;
-        received += n;
-    }
-    if (received != resp_len) {
+    size_t body_received = 0;
+    if (!read_exact(resp_buf.data(), resp_buf.size(), false, body_received)) {
+        Logger::Error("TINAPROTO", "Incomplete MTProto packet body: received=" +
+            std::to_string(body_received) + " expected=" + std::to_string(resp_len) +
+            "; closing desynchronized transport");
+        close(sock_);
+        sock_ = -1;
+        connected_ = false;
         return {};
     }
 
     std::vector<uint8_t> resp_msg_key(resp_buf.begin() + 8, resp_buf.begin() + 24);
     std::vector<uint8_t> resp_encrypted(resp_buf.begin() + 24, resp_buf.end());
+    if (resp_encrypted.empty() || resp_encrypted.size() % 16 != 0) {
+        Logger::Error("TINAPROTO", "Invalid encrypted MTProto payload size: " + std::to_string(resp_encrypted.size()));
+        close(sock_);
+        sock_ = -1;
+        connected_ = false;
+        return {};
+    }
 
     uint8_t resp_aes_key[32];
     uint8_t resp_aes_iv[32];
@@ -230,6 +276,7 @@ std::vector<uint8_t> MtprotoClient::ReceivePacket() {
 
     int32_t data_len = *reinterpret_cast<int32_t*>(resp_plaintext.data() + 28);
     if (data_len <= 0 || static_cast<size_t>(32 + data_len) > resp_plaintext.size()) {
+        Logger::Error("TINAPROTO", "Invalid decrypted MTProto payload length: " + std::to_string(data_len));
         return {};
     }
 
