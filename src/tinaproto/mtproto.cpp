@@ -311,6 +311,32 @@ std::vector<uint8_t> MtprotoClient::ExtractRpcResult(const std::vector<uint8_t>&
 
         uint32_t decompressed_constructor = 0;
         std::memcpy(&decompressed_constructor, decompressed.data(), sizeof(decompressed_constructor));
+
+        // A gzip_packed object can also arrive as an unsolicited server update.
+        // Such updates are not the result of the RPC currently being awaited.
+        // In particular, returning a compressed "updates" object here causes
+        // callers such as channels.getFullChannel to mistake it for their own
+        // response. Keep waiting for the matching RPC result instead. A real
+        // RPC result whose result is gzip_packed is handled in the rpc_result
+        // branch above, after its req_msg_id has been verified.
+        if (decompressed_constructor == 0x74ae4240 || // updates
+            decompressed_constructor == 0x725b04c3 || // updatesCombined
+            decompressed_constructor == 0x78d4dec1 || // updateShort
+            decompressed_constructor == 0x313bc7f8 || // updateShortMessage
+            decompressed_constructor == 0x4d6deea5 || // updateShortChatMessage
+            decompressed_constructor == 0x11f1331c || // updateShortSentMessage
+            decompressed_constructor == 0x9015e101) { // updatesTooLong
+            Logger::Info(
+                "TINAPROTO",
+                "Ignoring unsolicited gzip-packed update constructor 0x" + [&]() {
+                    char hex[9];
+                    std::snprintf(hex, sizeof(hex), "%08x", decompressed_constructor);
+                    return std::string(hex);
+                }()
+            );
+            return {};
+        }
+
         if (decompressed_constructor == 0xf35c6d01 ||
             decompressed_constructor == 0x73f1f8dc ||
             decompressed_constructor == 0xa7eff811 ||
@@ -322,8 +348,9 @@ std::vector<uint8_t> MtprotoClient::ExtractRpcResult(const std::vector<uint8_t>&
         }
 
         // Normal result constructors (for example messages.ChatFull) are not
-        // RPC wrappers. Returning them here prevents a valid compressed
-        // response from being discarded as an unmatched rpc_result.
+        // RPC wrappers. Keep returning them for compatibility with the server's
+        // compressed-result path; unsolicited Updates constructors are filtered
+        // above so they cannot be mistaken for the awaited RPC result.
         return decompressed;
     } else if (constructor == 0xedab447b && payload.size() >= 28) {
         salt_ = *reinterpret_cast<const int64_t*>(payload.data() + 20);
