@@ -399,8 +399,16 @@ std::vector<uint8_t> MtprotoClient::SendRpc(const std::vector<uint8_t>& rpc_quer
             continue;
         }
 
-        uint32_t constructor = *reinterpret_cast<const uint32_t*>(resp.data());
-        Logger::Info("TINAPROTO", "Attempt " + std::to_string(attempts) + " received constructor 0x" + std::to_string(constructor) + " size " + std::to_string(resp.size()));
+        uint32_t constructor = 0;
+        std::memcpy(&constructor, resp.data(), sizeof(constructor));
+        Logger::Info(
+            "TINAPROTO",
+            "Attempt " + std::to_string(attempts) + " received constructor 0x" + [&]() {
+                char hex[9];
+                std::snprintf(hex, sizeof(hex), "%08x", constructor);
+                return std::string(hex);
+            }() + " size " + std::to_string(resp.size())
+        );
 
         bool need_resend = false;
         bool is_rpc_error = false;
@@ -567,6 +575,25 @@ std::optional<InputGroupCall> MtprotoClient::GetGroupCall(int64_t chat_id) {
                     return std::string(hex);
                 }()
             );
+
+            // channels.getFullChannel must return messages.chatFull. Never
+            // scan an unrelated Updates object for bytes that resemble an
+            // InputGroupCall; unsolicited compressed updates are filtered in
+            // ExtractRpcResult, and this check protects the call parser too.
+            if (response_constructor != 0xe5d7d19c) {
+                Logger::Warn(
+                    "TINAPROTO",
+                    "Unexpected getFullChannel result constructor 0x" + [&]() {
+                        char hex[9];
+                        std::snprintf(hex, sizeof(hex), "%08x", response_constructor);
+                        return std::string(hex);
+                    }() + " (expected messages.chatFull 0xe5d7d19c)"
+                );
+                if (retry == 0) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+                }
+                continue;
+            }
 
             bool found_input_group_call = false;
             for (size_t i = 0; i + 20 <= resp.size(); ++i) {
