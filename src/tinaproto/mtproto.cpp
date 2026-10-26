@@ -292,14 +292,39 @@ std::vector<uint8_t> MtprotoClient::ExtractRpcResult(const std::vector<uint8_t>&
         }
         return inner;
     } else if (constructor == 0x3072cfa1) {
+        // A gzip_packed body may wrap the actual RPC result object directly.
+        // Only recurse when the decompressed payload is itself an MTProto
+        // service/RPC wrapper; otherwise return the decompressed TL object.
         TlReader r(payload);
         r.ReadUint32();
         std::vector<uint8_t> compressed = r.ReadBytes();
+        if (r.HasError() || compressed.empty()) {
+            Logger::Error("TINAPROTO", "Invalid gzip_packed payload");
+            return {};
+        }
+
         std::vector<uint8_t> decompressed = DecompressGzip(compressed.data(), compressed.size());
-        if (!decompressed.empty()) {
+        if (decompressed.size() < 4) {
+            Logger::Error("TINAPROTO", "Failed to decompress gzip_packed RPC payload");
+            return {};
+        }
+
+        uint32_t decompressed_constructor = 0;
+        std::memcpy(&decompressed_constructor, decompressed.data(), sizeof(decompressed_constructor));
+        if (decompressed_constructor == 0xf35c6d01 ||
+            decompressed_constructor == 0x73f1f8dc ||
+            decompressed_constructor == 0xa7eff811 ||
+            decompressed_constructor == 0xedab447b ||
+            decompressed_constructor == 0x9ec20908 ||
+            decompressed_constructor == 0x2144ca19 ||
+            decompressed_constructor == 0x3072cfa1) {
             return ExtractRpcResult(decompressed, target_msg_id, need_resend, is_rpc_error);
         }
-        return {};
+
+        // Normal result constructors (for example messages.ChatFull) are not
+        // RPC wrappers. Returning them here prevents a valid compressed
+        // response from being discarded as an unmatched rpc_result.
+        return decompressed;
     } else if (constructor == 0xedab447b && payload.size() >= 28) {
         salt_ = *reinterpret_cast<const int64_t*>(payload.data() + 20);
         need_resend = true;
