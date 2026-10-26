@@ -15,9 +15,43 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 CACHE_PATH = os.path.join(DATA_DIR, "peer_cache.json")
 
-TARGET_CHAT_IDS = [
-    -1003744652244,
-]
+def configured_target_chat_ids():
+    """Read optional chat IDs that should be resolved even if absent from dialogs.
+
+    Normal automatic discovery still scans every dialog available to the
+    logged-in Telegram session. Set TARGET_CHAT_IDS to a comma-separated list
+    only for chats that should be explicitly checked as an additional fallback.
+    """
+    raw_ids = os.environ.get("TARGET_CHAT_IDS", "").strip()
+    if not raw_ids:
+        return []
+
+    target_ids = []
+    for item in raw_ids.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            target_ids.append(int(item))
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid TARGET_CHAT_IDS entry {item!r}; use comma-separated integer chat IDs"
+            ) from exc
+    return list(dict.fromkeys(target_ids))
+
+
+def channel_id_from_chat_id(chat_id):
+    """Convert a Telegram supergroup/channel dialog ID to its raw channel ID."""
+    if chat_id >= 0:
+        return None
+    absolute_id = abs(chat_id)
+    if absolute_id <= 1000000000000:
+        # Legacy basic groups are not InputPeerChannel peers.
+        return None
+    return absolute_id - 1000000000000
+
+
+TARGET_CHAT_IDS = configured_target_chat_ids()
 
 # --------------------------------------------------
 # CACHE MANAGEMENT
@@ -101,6 +135,8 @@ async def cache_peer(app, chat, cache):
     if isinstance(peer, raw.types.InputPeerChannel):
         channel_id = str(peer.channel_id)
         access_hash = int(peer.access_hash)
+        if int(channel_id) <= 0:
+            raise ValueError(f"Invalid Telegram channel ID returned by resolve_peer: {channel_id}")
 
         is_new = channel_id not in cache["InputChannels"]
 
@@ -109,7 +145,7 @@ async def cache_peer(app, chat, cache):
         title = getattr(chat, "title", None) or "Unknown"
 
         print(
-            f"[CHANNEL_CACHED] id={channel_id} "
+            f"[CHANNEL_CACHED] chat_id={chat.id} channel_id={channel_id} "
             f"new={is_new} title={title!r}"
         )
 
@@ -201,14 +237,22 @@ async def main():
                     f"title={title!r} error={exc}"
                 )
 
-        # Explicitly check target groups missing from the dialog scan.
+        # Optional fallback for configured IDs that did not appear in dialogs.
+        # This list is not required for normal discovery.
         for target_chat_id in TARGET_CHAT_IDS:
-            channel_id = str(abs(target_chat_id) - 1000000000000)
+            raw_channel_id = channel_id_from_chat_id(target_chat_id)
+            if raw_channel_id is None:
+                print(
+                    f"[TARGET_LOOKUP] Skipping chat_id={target_chat_id}: "
+                    "not a supergroup/channel ID"
+                )
+                continue
 
+            channel_id = str(raw_channel_id)
             if channel_id in cache["InputChannels"]:
                 print(
                     f"[TARGET_LOOKUP] chat_id={target_chat_id} "
-                    "already exists in cache"
+                    f"channel_id={channel_id} already exists in cache"
                 )
                 continue
 
@@ -242,6 +286,15 @@ async def main():
         # Save discovered entries while retaining existing entries.
         save_cache_atomic(cache)
 
+        # Verify the final on-disk cache before reporting success.
+        with open(CACHE_PATH, "r", encoding="utf-8") as file:
+            saved_cache = json.load(file)
+        if not isinstance(saved_cache.get("InputChannels"), dict):
+            raise RuntimeError("Saved peer cache is missing InputChannels")
+        if not isinstance(saved_cache.get("InputUsers"), dict):
+            raise RuntimeError("Saved peer cache is missing InputUsers")
+        cache = saved_cache
+
         print("")
         print("[CACHE] Discovery finished.")
         print(f"[CACHE] Dialogs scanned: {scanned}")
@@ -258,9 +311,15 @@ async def main():
         print(f"[CACHE] Saved to: {CACHE_PATH}")
 
         print(
-            "[CACHE] Newly discovered accessible channels will "
-            "be included without manually entering their IDs."
+            "[CACHE] Automatic discovery scans all dialogs visible to this "
+            "Telegram session; accessible supergroups and channels are cached "
+            "without manually entering their IDs."
         )
+        if not TARGET_CHAT_IDS:
+            print(
+                "[CACHE] TARGET_CHAT_IDS is unset; no hardcoded target list "
+                "is required for automatic dialog discovery."
+            )
 
     finally:
         await app.stop()
