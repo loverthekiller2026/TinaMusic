@@ -22,6 +22,7 @@
 #include <zlib.h>
 #include <thread>
 #include <chrono>
+#include <cerrno>
 
 namespace tinaproto {
 
@@ -94,7 +95,7 @@ bool MtprotoClient::Connect(const SessionData& session) {
     }
 
     struct timeval tv{};
-    tv.tv_sec = 15;
+    tv.tv_sec = 2; // Keep RPC receive waits bounded; SendRpc owns the overall deadline.
     tv.tv_usec = 0;
     setsockopt(sock_, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
     setsockopt(sock_, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
@@ -160,11 +161,17 @@ bool MtprotoClient::SendPacket(const std::vector<uint8_t>& payload, int32_t seq_
     wire_w.PutRawBytes(packet.data(), packet.size());
 
     const auto& wire = wire_w.GetData();
-    ssize_t sent = send(sock_, wire.data(), wire.size(), 0);
-    if (sent != static_cast<ssize_t>(wire.size())) {
-        Logger::Error("TINAPROTO", "send failed: sent=" + std::to_string(sent) + " wire=" + std::to_string(wire.size()) + " errno=" + std::to_string(errno) + " (" + strerror(errno) + ")");
+    size_t sent_total = 0;
+    while (sent_total < wire.size()) {
+        ssize_t sent = send(sock_, wire.data() + sent_total, wire.size() - sent_total, MSG_NOSIGNAL);
+        if (sent < 0 && errno == EINTR) continue;
+        if (sent <= 0) {
+            Logger::Error("TINAPROTO", "send failed: sent=" + std::to_string(sent_total) + " wire=" + std::to_string(wire.size()) + " errno=" + std::to_string(errno) + " (" + strerror(errno) + ")");
+            return false;
+        }
+        sent_total += static_cast<size_t>(sent);
     }
-    return (sent == static_cast<ssize_t>(wire.size()));
+    return true;
 }
 
 std::vector<uint8_t> MtprotoClient::ReceivePacket() {
@@ -393,17 +400,22 @@ std::vector<uint8_t> MtprotoClient::SendRpc(const std::vector<uint8_t>& rpc_quer
         return {};
     }
 
-    for (int attempts = 0; attempts < 15; ++attempts) {
+    // Updates and acknowledgements can precede the matching rpc_result.
+    // Bound the wait by wall-clock time rather than a packet-count limit.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+    size_t packets_seen = 0;
+    while (std::chrono::steady_clock::now() < deadline) {
         std::vector<uint8_t> resp = ReceivePacket();
         if (resp.empty()) {
             continue;
         }
+        ++packets_seen;
 
         uint32_t constructor = 0;
         std::memcpy(&constructor, resp.data(), sizeof(constructor));
         Logger::Info(
             "TINAPROTO",
-            "Attempt " + std::to_string(attempts) + " received constructor 0x" + [&]() {
+            "Packet " + std::to_string(packets_seen) + " received constructor 0x" + [&]() {
                 char hex[9];
                 std::snprintf(hex, sizeof(hex), "%08x", constructor);
                 return std::string(hex);
@@ -433,7 +445,7 @@ std::vector<uint8_t> MtprotoClient::SendRpc(const std::vector<uint8_t>& rpc_quer
         }
     }
 
-    Logger::Error("TINAPROTO", "SendRpc timed out or failed to receive matching rpc_result");
+    Logger::Error("TINAPROTO", "SendRpc timed out after " + std::to_string(packets_seen) + " packets without matching rpc_result");
     return {};
 }
 
@@ -539,10 +551,9 @@ bool MtprotoClient::ResolveChannel(
 
 
 std::optional<InputGroupCall> MtprotoClient::GetGroupCall(int64_t chat_id) {
-    auto git = group_calls_.find(chat_id);
-    if (git != group_calls_.end() && git->second.valid) {
-        return git->second;
-    }
+    // Call IDs/hashes become stale when a voice chat ends or is recreated.
+    // Resolve the current call from Telegram for each join attempt.
+    group_calls_.erase(chat_id);
 
     int64_t channel_id = 0;
     int64_t access_hash = 0;
