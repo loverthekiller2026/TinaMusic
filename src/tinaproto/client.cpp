@@ -11,6 +11,7 @@
 #include "tinaproto/client.hpp"
 #include "logger.hpp"
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace tinaproto {
@@ -37,7 +38,15 @@ TinaProtoClient::~TinaProtoClient() = default;
 bool TinaProtoClient::InitializePool(const std::vector<std::string>& sessions, int32_t api_id,
                                      const std::string& api_hash) {
     std::vector<std::string> usable;
-    for (const auto& session : sessions) if (!session.empty()) usable.push_back(session);
+    std::unordered_set<std::string> unique_sessions;
+    for (const auto& session : sessions) {
+        if (session.empty()) continue;
+        if (!unique_sessions.insert(session).second) {
+            Logger::Error("TINAPROTO", "Duplicate STRING_SESSIONS entry detected; each concurrent group needs a different Telegram account");
+            return false;
+        }
+        usable.push_back(session);
+    }
     if (usable.empty()) {
         Logger::Error("TINAPROTO", "No STRING_SESSIONS configured");
         return false;
