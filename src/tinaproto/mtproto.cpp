@@ -193,6 +193,9 @@ std::vector<uint8_t> MtprotoClient::ReceivePacket() {
                 continue;
             }
             if (n == 0) {
+                close(sock_);
+                sock_ = -1;
+                connected_ = false;
                 return false;
             }
             if (errno == EINTR) {
@@ -206,6 +209,9 @@ std::vector<uint8_t> MtprotoClient::ReceivePacket() {
                     continue; // Preserve any partial header/body and finish the frame.
                 }
             }
+            close(sock_);
+            sock_ = -1;
+            connected_ = false;
             return false;
         }
         return true;
