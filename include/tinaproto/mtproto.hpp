@@ -1,12 +1,3 @@
-/*
- * ============================================================================
- *   Project: TinaMusic - Telegram's First Native C++20 Music Bot Engine
- *   Architecture: Native C++20 Core + Pure C++20 TinaProto Voice Engine
- *   Copyright (C) 2026 SUDEEPBOTS / TinaMusic Contributors
- *   Support: https://t.me/Z0iiw
- *   License: GNU Affero General Public License v3.0
- * ============================================================================
- */
 
 #pragma once
 
