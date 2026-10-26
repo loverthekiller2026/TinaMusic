@@ -17,6 +17,8 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <vector>
+#include <cstddef>
 
 namespace tinaproto {
 
@@ -29,8 +31,15 @@ struct StreamResult {
 class TinaProtoClient {
 public:
     static TinaProtoClient& GetInstance();
+    static bool InitializePool(const std::vector<std::string>& sessions, int32_t api_id, const std::string& api_hash);
+    static TinaProtoClient* ForChat(int64_t chat_id);
+    static TinaProtoClient* FindForChat(int64_t chat_id);
+    static void ReleaseChat(int64_t chat_id);
+    static void SetOnStreamEndForAll(std::function<void(int64_t)> cb);
+    static size_t SessionCount();
 
-    bool Initialize(const std::string& session_str, int32_t api_id, const std::string& api_hash);
+    bool Initialize(const std::string& session_str, int32_t api_id, const std::string& api_hash,
+                    const std::string& peer_cache_path = "data/peer_cache.json");
 
     StreamResult Play(int64_t chat_id, const std::string& stream_url);
 
@@ -50,9 +59,11 @@ public:
 
     bool IsInitialized() const { return initialized_; }
 
-private:
+public:
     TinaProtoClient();
     ~TinaProtoClient();
+
+private:
 
     bool initialized_{false};
     std::mutex mtx_;
