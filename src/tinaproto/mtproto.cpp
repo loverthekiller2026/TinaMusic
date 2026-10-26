@@ -474,6 +474,11 @@ bool MtprotoClient::InitConnection(uint32_t api_id) {
 }
 
 bool MtprotoClient::LoadPeerCache(const std::string& cache_path) {
+    // Replace the in-memory snapshot instead of merging old entries from a
+    // previous load; stale access hashes should not survive a cache refresh.
+    channel_access_hashes_.clear();
+    user_access_hashes_.clear();
+
     std::ifstream f(cache_path);
     if (!f.is_open()) {
         Logger::Warn("TINAPROTO", "Peer cache file not found: " + cache_path);
@@ -484,12 +489,16 @@ bool MtprotoClient::LoadPeerCache(const std::string& cache_path) {
         f >> j;
         if (j.contains("InputChannels")) {
             for (auto& [k, v] : j["InputChannels"].items()) {
-                channel_access_hashes_[std::stoll(k)] = v.get<int64_t>();
+                const int64_t id = std::stoll(k);
+                const int64_t hash = v.get<int64_t>();
+                if (id > 0 && hash != 0) channel_access_hashes_[id] = hash;
             }
         }
         if (j.contains("InputUsers")) {
             for (auto& [k, v] : j["InputUsers"].items()) {
-                user_access_hashes_[std::stoll(k)] = v.get<int64_t>();
+                const int64_t id = std::stoll(k);
+                const int64_t hash = v.get<int64_t>();
+                if (id > 0 && hash != 0) user_access_hashes_[id] = hash;
             }
         }
         Logger::Info("TINAPROTO", "Loaded " + std::to_string(channel_access_hashes_.size()) + " channels and " + std::to_string(user_access_hashes_.size()) + " users from cache");
