@@ -66,6 +66,18 @@ void VoiceBinding::StreamEndThunk(uintptr_t ptr, int64_t chat_id, int stream_typ
     if (!self) {
         return;
     }
+    {
+        std::lock_guard<std::mutex> lock(self->calls_mtx_);
+        auto suppressed = self->suppressed_stream_ends_.find(chat_id);
+        if (suppressed != self->suppressed_stream_ends_.end()) {
+            const auto now = std::chrono::steady_clock::now();
+            if (now < suppressed->second) {
+                self->suppressed_stream_ends_.erase(suppressed);
+                return; // Teardown/source replacement, not a natural track end.
+            }
+            self->suppressed_stream_ends_.erase(suppressed);
+        }
+    }
     if (self->on_stream_end_cb_) {
         self->on_stream_end_cb_(chat_id);
     }
@@ -200,6 +212,12 @@ int64_t VoiceBinding::Time(int64_t chat_id) {
 
 void VoiceBinding::SetOnStreamEnd(std::function<void(int64_t)> cb) {
     on_stream_end_cb_ = std::move(cb);
+}
+
+void VoiceBinding::SuppressStreamEndFor(int64_t chat_id, int milliseconds) {
+    std::lock_guard<std::mutex> lock(calls_mtx_);
+    suppressed_stream_ends_[chat_id] =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(milliseconds);
 }
 
 bool VoiceBinding::HasActiveCall(int64_t chat_id) {
