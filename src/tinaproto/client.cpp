@@ -86,6 +86,9 @@ StreamResult TinaProtoClient::Play(int64_t chat_id, const std::string& stream_ur
     std::string cmd = BuildFfmpegCommand(stream_url);
 
     if (voice_binding_.HasActiveCall(chat_id)) {
+        // Replacing an FFmpeg source can produce a late stream-end callback
+        // for the old source. Do not let it advance the new track's queue.
+        voice_binding_.SuppressStreamEndFor(chat_id);
         if (voice_binding_.SetStreamSources(chat_id, cmd)) {
             result.ok = true;
             Logger::Info("TINAPROTO", "Updated active stream sources for chat " + std::to_string(chat_id));
@@ -152,6 +155,7 @@ void TinaProtoClient::Resume(int64_t chat_id) {
 
 void TinaProtoClient::Stop(int64_t chat_id) {
     std::lock_guard<std::mutex> lock(mtx_);
+    voice_binding_.SuppressStreamEndFor(chat_id);
     voice_binding_.Stop(chat_id);
     mtproto_.LeaveGroupCall(chat_id);
 }
