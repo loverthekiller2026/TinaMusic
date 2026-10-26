@@ -711,7 +711,7 @@ std::string MtprotoClient::JoinGroupCall(int64_t chat_id, const std::string& loc
 
     // Keep the call reference so the caller can best-effort leave a possibly
     // joined server-side participant before retrying playback.
-    return "{\\"transport\\": null}";
+    return "{\"transport\": null}";
 }
 
 bool MtprotoClient::LeaveGroupCall(int64_t chat_id) {
