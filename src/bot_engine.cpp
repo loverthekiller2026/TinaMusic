@@ -328,7 +328,7 @@ nlohmann::json BotEngine::MakeLanguageMarkup() {
 
 void BotEngine::Run() {
     is_running_ = true;
-    tinaproto::TinaProtoClient::GetInstance().SetOnStreamEnd([this](int64_t cid) {
+    tinaproto::TinaProtoClient::SetOnStreamEndForAll([this](int64_t cid) {
         QueueTrackEnded(cid);
     });
     // Stream-end events are emitted by the native NTgCalls callback. Do not
@@ -2270,6 +2270,11 @@ void BotEngine::OnTrackEnded(int64_t chat_id) {
                 });
                 tg_->SendMessage(chat_id, now_playing, MakePlayerMarkup(chat_id, 0, 240));
             }
+        } else {
+            // No related track was found; release this assistant session for other groups.
+            AudioEngine::Instance().StopPlayback(chat_id);
+            qm.Clear(chat_id);
+            tg_->SendMessage(chat_id, lm.F(chat_id, "cb_skip_queue_empty"));
         }
     } else {
         AudioEngine::Instance().StopPlayback(chat_id);
