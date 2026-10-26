@@ -91,8 +91,10 @@ StreamResult TinaProtoClient::Play(int64_t chat_id, const std::string& stream_ur
             Logger::Info("TINAPROTO", "Updated active stream sources for chat " + std::to_string(chat_id));
             return result;
         } else {
-            Logger::Warn("TINAPROTO", "SetStreamSources failed on active call, recreating call for chat " + std::to_string(chat_id));
+            Logger::Warn("TINAPROTO", "SetStreamSources failed on active call, leaving the old Telegram call before recreating it for chat " + std::to_string(chat_id));
             voice_binding_.Stop(chat_id);
+            // Stopping NTgCalls alone can leave a stale server-side participant.
+            mtproto_.LeaveGroupCall(chat_id);
         }
     }
 
@@ -115,6 +117,9 @@ StreamResult TinaProtoClient::Play(int64_t chat_id, const std::string& stream_ur
     std::string remote_sdp = mtproto_.JoinGroupCall(chat_id, local_sdp);
     if (remote_sdp.empty() || remote_sdp == "{\"transport\": null}") {
         voice_binding_.Stop(chat_id);
+        // Telegram may have accepted joinGroupCall even if its transport response
+        // could not be decoded; best-effort leave before allowing another retry.
+        mtproto_.LeaveGroupCall(chat_id);
         result.ok = false;
         result.error = "JOIN_GROUP_CALL_FAILED";
         result.detail = "Telegram MTProto rejected joinGroupCall or returned empty transport";
