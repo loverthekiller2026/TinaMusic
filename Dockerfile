@@ -106,4 +106,4 @@ RUN set -eux; \
     test -x /app/bin/tina-music-bot; \
     chmod +x /app/start.sh
 
-ENTRYPOINT ["/bin/bash", "/app/start.sh"]
+CMD ["bash", "/app/start.sh"]
