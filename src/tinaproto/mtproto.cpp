@@ -676,7 +676,8 @@ std::string MtprotoClient::JoinGroupCall(int64_t chat_id, const std::string& loc
     std::vector<uint8_t> resp = SendRpc(w.TakeData());
     if (resp.empty()) {
         Logger::Error("TINAPROTO", "phone.joinGroupCall RPC failed for chat " + std::to_string(chat_id));
-        group_calls_.erase(chat_id);
+        // Keep the resolved call ID/hash for best-effort cleanup: Telegram may
+        // have accepted the request even when the response was lost.
         return "";
     }
 
@@ -708,8 +709,9 @@ std::string MtprotoClient::JoinGroupCall(int64_t chat_id, const std::string& loc
         }
     }
 
-    group_calls_.erase(chat_id);
-    return "{\"transport\": null}";
+    // Keep the call reference so the caller can best-effort leave a possibly
+    // joined server-side participant before retrying playback.
+    return "{\\"transport\\": null}";
 }
 
 bool MtprotoClient::LeaveGroupCall(int64_t chat_id) {
