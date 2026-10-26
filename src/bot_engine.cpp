@@ -357,6 +357,31 @@ void BotEngine::Run() {
 void BotEngine::ProcessMessage(const TgMessage& msg) {
     if (msg.text.empty()) return;
 
+    // Telegram group commands may be explicitly addressed to another bot,
+    // for example /end@WordGridRobot. Ignore those before logging or dispatching
+    // them; stripping every @username would incorrectly run TinaMusic's /end.
+    {
+        std::stringstream command_stream(msg.text);
+        std::string first_token;
+        command_stream >> first_token;
+        if (!first_token.empty() && first_token[0] == '/') {
+            const auto at_pos = first_token.find('@');
+            if (at_pos != std::string::npos) {
+                const std::string target = first_token.substr(at_pos + 1);
+                std::string own_username = tg_->GetBotUsername();
+                auto lower_ascii = [](std::string value) {
+                    std::transform(value.begin(), value.end(), value.begin(),
+                        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                    return value;
+                };
+                if (target.empty() ||
+                    lower_ascii(target) != lower_ascii(own_username)) {
+                    return;
+                }
+            }
+        }
+    }
+
     std::string sender = msg.from.username.empty() ? msg.from.first_name : "@" + msg.from.username;
     Logger::Info("BOT", "Incoming [" + std::to_string(msg.chat.id) + "] from " + sender + ": " + msg.text);
 
