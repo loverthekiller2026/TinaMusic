@@ -527,15 +527,49 @@ std::optional<InputGroupCall> MtprotoClient::GetGroupCall(int64_t chat_id) {
     for (int retry = 0; retry < 2; ++retry) {
         std::vector<uint8_t> resp = SendRpc(query_bytes);
         if (!resp.empty()) {
+            uint32_t response_constructor = 0;
+            if (resp.size() >= sizeof(response_constructor)) {
+                std::memcpy(&response_constructor, resp.data(), sizeof(response_constructor));
+            }
+            Logger::Info(
+                "TINAPROTO",
+                "getFullChannel decoded response: bytes=" + std::to_string(resp.size()) +
+                " constructor=0x" + [&]() {
+                    char hex[9];
+                    std::snprintf(hex, sizeof(hex), "%08x", response_constructor);
+                    return std::string(hex);
+                }()
+            );
+
+            bool found_input_group_call = false;
             for (size_t i = 0; i + 20 <= resp.size(); ++i) {
-                uint32_t magic = *reinterpret_cast<const uint32_t*>(resp.data() + i);
+                uint32_t magic = 0;
+                std::memcpy(&magic, resp.data() + i, sizeof(magic));
                 if (magic == 0xd8aa840f) {
-                    int64_t call_id = *reinterpret_cast<const int64_t*>(resp.data() + i + 4);
-                    int64_t call_hash = *reinterpret_cast<const int64_t*>(resp.data() + i + 12);
+                    int64_t call_id = 0;
+                    int64_t call_hash = 0;
+                    std::memcpy(&call_id, resp.data() + i + 4, sizeof(call_id));
+                    std::memcpy(&call_hash, resp.data() + i + 12, sizeof(call_hash));
                     InputGroupCall call{call_id, call_hash, true};
                     group_calls_[chat_id] = call;
                     Logger::Info("TINAPROTO", "Resolved InputGroupCall for chat " + std::to_string(chat_id) + " (id: " + std::to_string(call_id) + ")");
                     return call;
+                }
+                // Log the channelFull flags when the known constructor is present.
+                // This shows whether Telegram actually set the optional call field.
+                if ((magic == 0xe4e0b29d || magic == 0xbbab348d) && i + 8 <= resp.size()) {
+                    uint32_t flags = 0;
+                    std::memcpy(&flags, resp.data() + i + 4, sizeof(flags));
+                    Logger::Info(
+                        "TINAPROTO",
+                        "channelFull at offset " + std::to_string(i) +
+                        " flags=0x" + [&]() {
+                            char hex[9];
+                            std::snprintf(hex, sizeof(hex), "%08x", flags);
+                            return std::string(hex);
+                        }() +
+                        " call_flag_21=" + ((flags & (1u << 21)) ? "set" : "not_set")
+                    );
                 }
             }
         }
@@ -544,7 +578,7 @@ std::optional<InputGroupCall> MtprotoClient::GetGroupCall(int64_t chat_id) {
         }
     }
 
-    Logger::Warn("TINAPROTO", "No active group call found in chat full response for " + std::to_string(chat_id));
+    Logger::Warn("TINAPROTO", "No active InputGroupCall found in decoded getFullChannel response for " + std::to_string(chat_id));
     return std::nullopt;
 }
 
