@@ -19,10 +19,6 @@ TARGET_CHAT_IDS = [
     -1003744652244,
 ]
 
-# No hardcoded TARGET_CHAT_IDS.
-# Groups and channels are discovered from Telegram dialogs.
-
-
 # --------------------------------------------------
 # CACHE MANAGEMENT
 # --------------------------------------------------
@@ -204,6 +200,44 @@ async def main():
                     f"[PEER_ERROR] chat_id={chat.id} "
                     f"title={title!r} error={exc}"
                 )
+
+        # Explicitly check target groups missing from the dialog scan.
+        for target_chat_id in TARGET_CHAT_IDS:
+            channel_id = str(abs(target_chat_id) - 1000000000000)
+
+            if channel_id in cache["InputChannels"]:
+                print(
+                    f"[TARGET_LOOKUP] chat_id={target_chat_id} "
+                    "already exists in cache"
+                )
+                continue
+
+            print(f"[TARGET_LOOKUP] Attempting chat_id={target_chat_id}")
+
+            
+            try:
+                chat = await app.get_chat(target_chat_id)
+                result = await cache_peer(app, chat, cache)
+
+                if result == "channel":
+                    print(
+                        f"[TARGET_LOOKUP] Successfully cached "
+                        f"chat_id={target_chat_id}"
+                    )
+                    resolved += 1
+                else:
+                    print(
+                        f"[TARGET_LOOKUP] Unsupported peer type "
+                        f"for chat_id={target_chat_id}"
+                    )
+
+            except Exception as exc:
+                failed += 1
+                print(
+                    f"[TARGET_LOOKUP_ERROR] chat_id={target_chat_id} "
+                    f"type={type(exc).__name__} error={exc}"
+                )
+
 
         # Save discovered entries while retaining existing entries.
         save_cache_atomic(cache)
