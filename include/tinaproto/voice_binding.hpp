@@ -15,6 +15,8 @@
 #include <cstdint>
 #include <mutex>
 #include <unordered_set>
+#include <unordered_map>
+#include <chrono>
 
 namespace tinaproto {
 
@@ -42,11 +44,13 @@ public:
     void SetOnStreamEnd(std::function<void(int64_t)> cb);
 
     bool HasActiveCall(int64_t chat_id);
+    void SuppressStreamEndFor(int64_t chat_id, int milliseconds = 750);
 
 private:
     uintptr_t handle_{0};
     std::mutex calls_mtx_;
     std::unordered_set<int64_t> active_calls_;
+    std::unordered_map<int64_t, std::chrono::steady_clock::time_point> suppressed_stream_ends_;
     std::function<void(int64_t)> on_stream_end_cb_;
 
     static void StreamEndThunk(uintptr_t ptr, int64_t chat_id, int stream_type, int stream_device, void* user_data);

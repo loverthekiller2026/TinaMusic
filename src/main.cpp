@@ -8,6 +8,7 @@
 #include <iostream>
 #include <csignal>
 #include <memory>
+#include <vector>
 
 static std::unique_ptr<BotEngine> g_bot;
 
@@ -63,7 +64,9 @@ int main(int argc, char* argv[]) {
     } catch (...) {}
 
     Logger::Info("STARTUP", "Initializing pure C++20 TinaProto native voice engine...");
-    if (!tinaproto::TinaProtoClient::GetInstance().Initialize(config.string_session, api_id_int, config.api_hash)) {
+    if (!tinaproto::TinaProtoClient::InitializePool(
+            config.string_sessions.empty() ? std::vector<std::string>{config.string_session} : config.string_sessions,
+            api_id_int, config.api_hash)) {
         Logger::Warn("STARTUP", "TinaProtoClient initialization failed or deferred");
     } else {
         Logger::Info("STARTUP", "Pure C++20 TinaProto voice engine ready and operational");

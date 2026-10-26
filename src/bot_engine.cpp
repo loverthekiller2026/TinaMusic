@@ -328,11 +328,11 @@ nlohmann::json BotEngine::MakeLanguageMarkup() {
 
 void BotEngine::Run() {
     is_running_ = true;
-    tinaproto::TinaProtoClient::GetInstance().SetOnStreamEnd([this](int64_t cid) {
-        OnTrackEnded(cid);
+    tinaproto::TinaProtoClient::SetOnStreamEndForAll([this](int64_t cid) {
+        QueueTrackEnded(cid);
     });
-    std::thread ipc_thread(&BotEngine::StartIpcListener, this);
-    ipc_thread.detach();
+    // Stream-end events are emitted by the native NTgCalls callback. Do not
+    // start the legacy IPC listener as it can duplicate queue-advance events.
     Logger::Info("BOT", "Starting Telegram polling loop (C++20 Native Engine)...");
     tg_->TestConnection();
 
@@ -349,6 +349,7 @@ void BotEngine::Run() {
                 ProcessCallback(u.callback_query);
             }
         }
+        ProcessPendingTrackEnds();
         std::this_thread::sleep_for(std::chrono::milliseconds(40));
     }
 }
@@ -1143,8 +1144,9 @@ void BotEngine::HandleSkip(const TgMessage& msg) {
 }
 
 void BotEngine::HandleStop(const TgMessage& msg) {
-    AudioEngine::Instance().StopPlayback(msg.chat.id);
+    // Clear queue state first so a teardown callback cannot restart playback.
     QueueManager::Instance().Clear(msg.chat.id);
+    AudioEngine::Instance().StopPlayback(msg.chat.id);
     auto& lm = LocalizationManager::Instance();
     std::string text = lm.F(msg.chat.id, "stop_success");
     if (text == "[stop_success]") text = "⏹ <b>Playback Stopped and Queue Cleared</b>";
@@ -2161,7 +2163,7 @@ void BotEngine::StartIpcListener() {
                     auto j = nlohmann::json::parse(body);
                     if (j.contains("chat_id")) {
                         int64_t cid = j["chat_id"].get<int64_t>();
-                        OnTrackEnded(cid);
+                        QueueTrackEnded(cid);
                     }
                 } catch (...) {}
             }
@@ -2173,9 +2175,56 @@ void BotEngine::StartIpcListener() {
     close(server_fd);
 }
 
+void BotEngine::QueueTrackEnded(int64_t chat_id) {
+    const auto now = std::chrono::steady_clock::now();
+    std::lock_guard<std::mutex> lock(track_end_mutex_);
+
+    // Some native backends can emit duplicate end notifications during teardown.
+    // Coalesce pending events and ignore near-identical repeats.
+    auto recent = last_track_end_event_.find(chat_id);
+    if (recent != last_track_end_event_.end() &&
+        now - recent->second < std::chrono::milliseconds(500)) {
+        return;
+    }
+    last_track_end_event_[chat_id] = now;
+
+    if (pending_track_end_chats_.insert(chat_id).second) {
+        pending_track_ends_.push_back(chat_id);
+    }
+}
+
+void BotEngine::ProcessPendingTrackEnds() {
+    while (true) {
+        int64_t chat_id = 0;
+        {
+            std::lock_guard<std::mutex> lock(track_end_mutex_);
+            if (pending_track_ends_.empty()) return;
+            chat_id = pending_track_ends_.front();
+            pending_track_ends_.pop_front();
+        }
+
+        // Run queue advancement and Telegram API calls on the bot thread, not
+        // on an NTgCalls callback thread that may be inside AudioEngine locks.
+        OnTrackEnded(chat_id);
+
+        {
+            std::lock_guard<std::mutex> lock(track_end_mutex_);
+            pending_track_end_chats_.erase(chat_id);
+        }
+    }
+}
+
 void BotEngine::OnTrackEnded(int64_t chat_id) {
     auto& qm = QueueManager::Instance();
     auto& lm = LocalizationManager::Instance();
+
+    // A late callback after /stop or a failed start must not restart playback.
+    const auto ended_track = qm.GetCurrent(chat_id);
+    if (!ended_track.has_value()) {
+        Logger::Info("AUDIO", "Ignoring stale stream-end event for idle chat " + std::to_string(chat_id));
+        return;
+    }
+
     auto next = qm.Next(chat_id);
     if (next.has_value()) {
         std::string streamUrl = next->stream_url.empty() ? next->url : next->stream_url;
@@ -2197,9 +2246,8 @@ void BotEngine::OnTrackEnded(int64_t chat_id) {
             tg_->SendMessage(chat_id, now_playing, MakePlayerMarkup(chat_id, 0, 240));
         }
     } else if (Database::Instance().IsAutoplayEnabled(chat_id)) {
-        auto cur = qm.GetCurrent(chat_id);
-        std::string cur_title = cur.has_value() ? cur->title : "English Song";
-        std::string cur_id = cur.has_value() ? cur->id : "";
+        std::string cur_title = ended_track->title;
+        std::string cur_id = ended_track->id;
         auto played = qm.GetPlayedHistory(chat_id);
         auto autoTrack = PlatformYouTube::GetRelatedTrack(cur_title, cur_id, played);
         if (autoTrack.has_value()) {
@@ -2222,6 +2270,11 @@ void BotEngine::OnTrackEnded(int64_t chat_id) {
                 });
                 tg_->SendMessage(chat_id, now_playing, MakePlayerMarkup(chat_id, 0, 240));
             }
+        } else {
+            // No related track was found; release this assistant session for other groups.
+            AudioEngine::Instance().StopPlayback(chat_id);
+            qm.Clear(chat_id);
+            tg_->SendMessage(chat_id, lm.F(chat_id, "cb_skip_queue_empty"));
         }
     } else {
         AudioEngine::Instance().StopPlayback(chat_id);

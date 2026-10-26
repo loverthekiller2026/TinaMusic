@@ -43,6 +43,10 @@
 #include <string>
 #include <memory>
 #include <chrono>
+#include <deque>
+#include <mutex>
+#include <unordered_map>
+#include <unordered_set>
 #include <nlohmann/json.hpp>
 #include "config.hpp"
 #include "tg_client.hpp"
@@ -129,6 +133,8 @@ private:
     void HandleSetRTMP(const TgMessage& msg, const std::string& args);
     void StartIpcListener();
     void OnTrackEnded(int64_t chat_id);
+    void QueueTrackEnded(int64_t chat_id);
+    void ProcessPendingTrackEnds();
 
     nlohmann::json MakeStartMarkup(int64_t chat_id);
     nlohmann::json MakeHelpMarkup(int64_t chat_id);
@@ -150,4 +156,8 @@ private:
     bool is_running_{false};
     int64_t last_update_id_{0};
     std::chrono::steady_clock::time_point boot_time_;
+    std::mutex track_end_mutex_;
+    std::deque<int64_t> pending_track_ends_;
+    std::unordered_set<int64_t> pending_track_end_chats_;
+    std::unordered_map<int64_t, std::chrono::steady_clock::time_point> last_track_end_event_;
 };

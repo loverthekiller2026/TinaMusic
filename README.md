@@ -158,7 +158,7 @@ docker compose logs -f
 | `API_ID` | **Yes** | Telegram App API ID from [my.telegram.org](https://my.telegram.org) | `1234567` |
 | `API_HASH` | **Yes** | Telegram App API Hash from [my.telegram.org](https://my.telegram.org) | `abcdef0123456789...` |
 | `BOT_TOKEN` | **Yes** | Telegram Bot Token from [@BotFather](https://t.me/BotFather) | `123456:ABC-DEF...` |
-| `STRING_SESSIONS` | **Yes** | Pyrogram or Telethon session string for Assistant userbot | `1BVtsOG...` |
+| `STRING_SESSIONS` | **Yes** | One Pyrogram session, or comma-separated independent Pyrogram session strings. Use one session per simultaneous voice chat. Each account must be in the target group and have access to its voice chat. | `SESSION_1,SESSION_2` |
 | `SESSION_TYPE` | No | Session string format (`pyrogram` or `telethon`, default: `pyrogram`) | `pyrogram` |
 | `OWNER_ID` | **Yes** | Telegram User ID of the primary owner | `620476130` |
 | `MONGO_DB_URI` | No | MongoDB URI for persistent settings & auth lists | `mongodb://...` |

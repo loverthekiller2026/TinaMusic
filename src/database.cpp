@@ -3,6 +3,9 @@
 #include "logger.hpp"
 #include <fstream>
 #include <sys/stat.h>
+#include <cstdio>
+#include <cerrno>
+#include <cstring>
 
 Database& Database::Instance() {
     static Database instance;
@@ -48,12 +51,35 @@ void Database::SaveToDisk() {
     root["chat_configs"] = chatsJson;
     root["served_chats"] = served_chats_;
 
-    std::string tmpPath = db_file_path_ + ".tmp";
-    std::ofstream ofs(tmpPath);
-    if (ofs.is_open()) {
-        ofs << root.dump(2);
-        ofs.close();
-        rename(tmpPath.c_str(), db_file_path_.c_str());
+    // Write to a sibling temporary file and atomically replace the database.
+    // Never replace a valid database with a partial/failed write.
+    const std::string tmpPath = db_file_path_ + ".tmp";
+    {
+        std::ofstream ofs(tmpPath, std::ios::out | std::ios::trunc);
+        if (!ofs.is_open()) {
+            Logger::Error("DATABASE", "Cannot open temporary database file: " + tmpPath);
+            return;
+        }
+        try {
+            ofs << root.dump(2) << '\n';
+            ofs.flush();
+            if (!ofs.good()) {
+                Logger::Error("DATABASE", "Failed writing temporary database file: " + tmpPath);
+                ofs.close();
+                std::remove(tmpPath.c_str());
+                return;
+            }
+        } catch (const std::exception& e) {
+            Logger::Error("DATABASE", "Failed serializing database: " + std::string(e.what()));
+            ofs.close();
+            std::remove(tmpPath.c_str());
+            return;
+        }
+    }
+    if (std::rename(tmpPath.c_str(), db_file_path_.c_str()) != 0) {
+        Logger::Error("DATABASE", "Atomic database replace failed: errno=" +
+            std::to_string(errno) + " (" + std::string(std::strerror(errno)) + ")");
+        std::remove(tmpPath.c_str());
     }
 }
 

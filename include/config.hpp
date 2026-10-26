@@ -52,6 +52,7 @@ struct AppConfig {
     std::string mongo_uri;
     int64_t log_group_id{0};
     std::string string_session;
+    std::vector<std::string> string_sessions;
     std::string session_type{"pyrogram"};
     std::string support_chat{"https://t.me/Z0iiw"};
     std::string support_channel{"https://t.me/Z0iiw"};

@@ -28,7 +28,13 @@ PlayResult AudioStreamSession::Start() {
         Stop();
     }
 
-    auto res = tinaproto::TinaProtoClient::GetInstance().Play(chat_id_, stream_url_);
+    auto* client = tinaproto::TinaProtoClient::ForChat(chat_id_);
+    if (!client) {
+        return {false, "NO_FREE_ASSISTANT_SESSION",
+                "All configured assistant sessions are already assigned to active voice chats"};
+    }
+    auto res = client->Play(chat_id_, stream_url_);
+    if (!res.ok) tinaproto::TinaProtoClient::ReleaseChat(chat_id_);
     PlayResult out;
     out.ok = res.ok;
     out.error = res.error;
@@ -48,7 +54,7 @@ PlayResult AudioStreamSession::Start() {
 
 void AudioStreamSession::Pause() {
     if (is_running_ && !is_paused_) {
-        tinaproto::TinaProtoClient::GetInstance().Pause(chat_id_);
+        if (auto* client = tinaproto::TinaProtoClient::FindForChat(chat_id_)) client->Pause(chat_id_);
         is_paused_ = true;
         Logger::Info("AUDIO", "Paused playback for chat: " + std::to_string(chat_id_));
     }
@@ -56,7 +62,7 @@ void AudioStreamSession::Pause() {
 
 void AudioStreamSession::Resume() {
     if (is_running_ && is_paused_) {
-        tinaproto::TinaProtoClient::GetInstance().Resume(chat_id_);
+        if (auto* client = tinaproto::TinaProtoClient::FindForChat(chat_id_)) client->Resume(chat_id_);
         is_paused_ = false;
         Logger::Info("AUDIO", "Resumed playback for chat: " + std::to_string(chat_id_));
     }
@@ -161,7 +167,10 @@ void AudioEngine::StopPlayback(int64_t chat_id) {
         it->second->Stop();
         sessions_.erase(it);
     }
-    tinaproto::TinaProtoClient::GetInstance().Stop(chat_id);
+    if (auto* client = tinaproto::TinaProtoClient::FindForChat(chat_id)) {
+        client->Stop(chat_id);
+        tinaproto::TinaProtoClient::ReleaseChat(chat_id);
+    }
     current_urls_.erase(chat_id);
     Logger::Info("AUDIO", "Stopped playback and disconnected call for chat: " + std::to_string(chat_id));
 }

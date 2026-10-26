@@ -180,10 +180,11 @@ async def cache_peer(app, chat, cache):
 # MAIN
 # --------------------------------------------------
 
-async def main():
+async def build_cache(session_string, cache_path):
+    global CACHE_PATH
+    CACHE_PATH = cache_path
     api_id = int(os.environ["API_ID"])
     api_hash = os.environ["API_HASH"]
-    session_string = os.environ["STRING_SESSIONS"]
 
     cache = load_existing_cache()
 
@@ -323,6 +324,19 @@ async def main():
 
     finally:
         await app.stop()
+
+
+async def main():
+    configured = os.environ.get("STRING_SESSIONS", os.environ.get("STRING_SESSION", ""))
+    sessions = [item.strip() for item in configured.split(",") if item.strip()]
+    if not sessions:
+        raise RuntimeError("STRING_SESSIONS must contain at least one assistant session string")
+
+    for index, session_string in enumerate(sessions, start=1):
+        cache_name = "peer_cache.json" if index == 1 else f"peer_cache_{index}.json"
+        cache_path = os.path.join(DATA_DIR, cache_name)
+        print(f"\n[CACHE] Building peer cache for assistant session {index}/{len(sessions)}")
+        await build_cache(session_string, cache_path)
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@
 #include <zlib.h>
 #include <thread>
 #include <chrono>
+#include <cerrno>
 
 namespace tinaproto {
 
@@ -94,7 +95,7 @@ bool MtprotoClient::Connect(const SessionData& session) {
     }
 
     struct timeval tv{};
-    tv.tv_sec = 15;
+    tv.tv_sec = 2; // Keep RPC receive waits bounded; SendRpc owns the overall deadline.
     tv.tv_usec = 0;
     setsockopt(sock_, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
     setsockopt(sock_, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
@@ -160,48 +161,106 @@ bool MtprotoClient::SendPacket(const std::vector<uint8_t>& payload, int32_t seq_
     wire_w.PutRawBytes(packet.data(), packet.size());
 
     const auto& wire = wire_w.GetData();
-    ssize_t sent = send(sock_, wire.data(), wire.size(), 0);
-    if (sent != static_cast<ssize_t>(wire.size())) {
-        Logger::Error("TINAPROTO", "send failed: sent=" + std::to_string(sent) + " wire=" + std::to_string(wire.size()) + " errno=" + std::to_string(errno) + " (" + strerror(errno) + ")");
+    size_t sent_total = 0;
+    while (sent_total < wire.size()) {
+        ssize_t sent = send(sock_, wire.data() + sent_total, wire.size() - sent_total, MSG_NOSIGNAL);
+        if (sent < 0 && errno == EINTR) continue;
+        if (sent <= 0) {
+            Logger::Error("TINAPROTO", "send failed: sent=" + std::to_string(sent_total) + " wire=" + std::to_string(wire.size()) + " errno=" + std::to_string(errno) + " (" + strerror(errno) + ")");
+            return false;
+        }
+        sent_total += static_cast<size_t>(sent);
     }
-    return (sent == static_cast<ssize_t>(wire.size()));
+    return true;
 }
 
 std::vector<uint8_t> MtprotoClient::ReceivePacket() {
-    uint32_t resp_len = 0;
-    ssize_t r = recv(sock_, &resp_len, 4, MSG_WAITALL);
-    if (r != 4) {
-        Logger::Error("TINAPROTO", "recv header failed: r=" + std::to_string(r) + " errno=" + std::to_string(errno) + " (" + strerror(errno) + ")");
+    if (sock_ < 0 || !connected_) {
         return {};
     }
-    if (resp_len < 24) {
-        std::vector<uint8_t> err_buf(resp_len);
-        if (resp_len > 0) {
-            recv(sock_, err_buf.data(), resp_len, MSG_WAITALL);
+
+    // Intermediate transport is a byte stream: recv(MSG_WAITALL) can still
+    // return a partial header/body on timeout. Never discard partial bytes and
+    // then treat the next byte as a new packet header.
+    auto read_exact = [this](uint8_t* dst, size_t length, bool allow_idle_timeout,
+                             size_t& received) -> bool {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+        received = 0;
+        while (received < length) {
+            ssize_t n = recv(sock_, dst + received, length - received, 0);
+            if (n > 0) {
+                received += static_cast<size_t>(n);
+                continue;
+            }
+            if (n == 0) {
+                close(sock_);
+                sock_ = -1;
+                connected_ = false;
+                return false;
+            }
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                if (allow_idle_timeout && received == 0) {
+                    return false; // No bytes of a new packet arrived; caller may keep waiting.
+                }
+                if (std::chrono::steady_clock::now() < deadline) {
+                    continue; // Preserve any partial header/body and finish the frame.
+                }
+            }
+            close(sock_);
+            sock_ = -1;
+            connected_ = false;
+            return false;
         }
-        std::string err_hex;
-        for (auto b : err_buf) {
-            char h[4];
-            snprintf(h, sizeof(h), "%02x ", b);
-            err_hex += h;
+        return true;
+    };
+
+    uint8_t header[4]{};
+    size_t header_received = 0;
+    if (!read_exact(header, sizeof(header), true, header_received)) {
+        if (header_received != 0) {
+            Logger::Error("TINAPROTO", "Timed out/incomplete MTProto packet header; closing desynchronized transport");
+            close(sock_);
+            sock_ = -1;
+            connected_ = false;
         }
-        Logger::Error("TINAPROTO", "Received short packet resp_len=" + std::to_string(resp_len) + " payload_hex=[" + err_hex + "]");
+        return {};
+    }
+
+    uint32_t resp_len = 0;
+    std::memcpy(&resp_len, header, sizeof(resp_len));
+    constexpr uint32_t kMaxPacketSize = 64 * 1024 * 1024;
+    if (resp_len < 24 || resp_len > kMaxPacketSize) {
+        Logger::Error("TINAPROTO", "Invalid MTProto packet length: " + std::to_string(resp_len));
+        close(sock_);
+        sock_ = -1;
+        connected_ = false;
         return {};
     }
 
     std::vector<uint8_t> resp_buf(resp_len);
-    size_t received = 0;
-    while (received < resp_len) {
-        ssize_t n = recv(sock_, resp_buf.data() + received, resp_len - received, 0);
-        if (n <= 0) break;
-        received += n;
-    }
-    if (received != resp_len) {
+    size_t body_received = 0;
+    if (!read_exact(resp_buf.data(), resp_buf.size(), false, body_received)) {
+        Logger::Error("TINAPROTO", "Incomplete MTProto packet body: received=" +
+            std::to_string(body_received) + " expected=" + std::to_string(resp_len) +
+            "; closing desynchronized transport");
+        close(sock_);
+        sock_ = -1;
+        connected_ = false;
         return {};
     }
 
     std::vector<uint8_t> resp_msg_key(resp_buf.begin() + 8, resp_buf.begin() + 24);
     std::vector<uint8_t> resp_encrypted(resp_buf.begin() + 24, resp_buf.end());
+    if (resp_encrypted.empty() || resp_encrypted.size() % 16 != 0) {
+        Logger::Error("TINAPROTO", "Invalid encrypted MTProto payload size: " + std::to_string(resp_encrypted.size()));
+        close(sock_);
+        sock_ = -1;
+        connected_ = false;
+        return {};
+    }
 
     uint8_t resp_aes_key[32];
     uint8_t resp_aes_iv[32];
@@ -223,6 +282,7 @@ std::vector<uint8_t> MtprotoClient::ReceivePacket() {
 
     int32_t data_len = *reinterpret_cast<int32_t*>(resp_plaintext.data() + 28);
     if (data_len <= 0 || static_cast<size_t>(32 + data_len) > resp_plaintext.size()) {
+        Logger::Error("TINAPROTO", "Invalid decrypted MTProto payload length: " + std::to_string(data_len));
         return {};
     }
 
@@ -393,17 +453,22 @@ std::vector<uint8_t> MtprotoClient::SendRpc(const std::vector<uint8_t>& rpc_quer
         return {};
     }
 
-    for (int attempts = 0; attempts < 15; ++attempts) {
+    // Updates and acknowledgements can precede the matching rpc_result.
+    // Bound the wait by wall-clock time rather than a packet-count limit.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+    size_t packets_seen = 0;
+    while (std::chrono::steady_clock::now() < deadline) {
         std::vector<uint8_t> resp = ReceivePacket();
         if (resp.empty()) {
             continue;
         }
+        ++packets_seen;
 
         uint32_t constructor = 0;
         std::memcpy(&constructor, resp.data(), sizeof(constructor));
         Logger::Info(
             "TINAPROTO",
-            "Attempt " + std::to_string(attempts) + " received constructor 0x" + [&]() {
+            "Packet " + std::to_string(packets_seen) + " received constructor 0x" + [&]() {
                 char hex[9];
                 std::snprintf(hex, sizeof(hex), "%08x", constructor);
                 return std::string(hex);
@@ -433,7 +498,7 @@ std::vector<uint8_t> MtprotoClient::SendRpc(const std::vector<uint8_t>& rpc_quer
         }
     }
 
-    Logger::Error("TINAPROTO", "SendRpc timed out or failed to receive matching rpc_result");
+    Logger::Error("TINAPROTO", "SendRpc timed out after " + std::to_string(packets_seen) + " packets without matching rpc_result");
     return {};
 }
 
@@ -462,6 +527,11 @@ bool MtprotoClient::InitConnection(uint32_t api_id) {
 }
 
 bool MtprotoClient::LoadPeerCache(const std::string& cache_path) {
+    // Replace the in-memory snapshot instead of merging old entries from a
+    // previous load; stale access hashes should not survive a cache refresh.
+    channel_access_hashes_.clear();
+    user_access_hashes_.clear();
+
     std::ifstream f(cache_path);
     if (!f.is_open()) {
         Logger::Warn("TINAPROTO", "Peer cache file not found: " + cache_path);
@@ -472,12 +542,16 @@ bool MtprotoClient::LoadPeerCache(const std::string& cache_path) {
         f >> j;
         if (j.contains("InputChannels")) {
             for (auto& [k, v] : j["InputChannels"].items()) {
-                channel_access_hashes_[std::stoll(k)] = v.get<int64_t>();
+                const int64_t id = std::stoll(k);
+                const int64_t hash = v.get<int64_t>();
+                if (id > 0 && hash != 0) channel_access_hashes_[id] = hash;
             }
         }
         if (j.contains("InputUsers")) {
             for (auto& [k, v] : j["InputUsers"].items()) {
-                user_access_hashes_[std::stoll(k)] = v.get<int64_t>();
+                const int64_t id = std::stoll(k);
+                const int64_t hash = v.get<int64_t>();
+                if (id > 0 && hash != 0) user_access_hashes_[id] = hash;
             }
         }
         Logger::Info("TINAPROTO", "Loaded " + std::to_string(channel_access_hashes_.size()) + " channels and " + std::to_string(user_access_hashes_.size()) + " users from cache");
@@ -539,10 +613,9 @@ bool MtprotoClient::ResolveChannel(
 
 
 std::optional<InputGroupCall> MtprotoClient::GetGroupCall(int64_t chat_id) {
-    auto git = group_calls_.find(chat_id);
-    if (git != group_calls_.end() && git->second.valid) {
-        return git->second;
-    }
+    // Call IDs/hashes become stale when a voice chat ends or is recreated.
+    // Resolve the current call from Telegram for each join attempt.
+    group_calls_.erase(chat_id);
 
     int64_t channel_id = 0;
     int64_t access_hash = 0;
@@ -656,7 +729,8 @@ std::string MtprotoClient::JoinGroupCall(int64_t chat_id, const std::string& loc
     std::vector<uint8_t> resp = SendRpc(w.TakeData());
     if (resp.empty()) {
         Logger::Error("TINAPROTO", "phone.joinGroupCall RPC failed for chat " + std::to_string(chat_id));
-        group_calls_.erase(chat_id);
+        // Keep the resolved call ID/hash for best-effort cleanup: Telegram may
+        // have accepted the request even when the response was lost.
         return "";
     }
 
@@ -688,7 +762,8 @@ std::string MtprotoClient::JoinGroupCall(int64_t chat_id, const std::string& loc
         }
     }
 
-    group_calls_.erase(chat_id);
+    // Keep the call reference so the caller can best-effort leave a possibly
+    // joined server-side participant before retrying playback.
     return "{\"transport\": null}";
 }
 
