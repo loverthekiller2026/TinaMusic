@@ -324,8 +324,8 @@ std::vector<uint8_t> MtprotoClient::ExtractRpcResult(const std::vector<uint8_t>&
             decompressed_constructor == 0x78d4dec1 || // updateShort
             decompressed_constructor == 0x313bc7f8 || // updateShortMessage
             decompressed_constructor == 0x4d6deea5 || // updateShortChatMessage
-            decompressed_constructor == 0x11f1331c || // updateShortSentMessage
-            decompressed_constructor == 0x9015e101) { // updatesTooLong
+            decompressed_constructor == 0x9015e101 || // updateShortSentMessage
+            decompressed_constructor == 0xe317af7e) { // updatesTooLong
             Logger::Info(
                 "TINAPROTO",
                 "Ignoring unsolicited gzip-packed update constructor 0x" + [&]() {
