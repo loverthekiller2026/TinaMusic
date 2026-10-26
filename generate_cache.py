@@ -15,6 +15,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 CACHE_PATH = os.path.join(DATA_DIR, "peer_cache.json")
 
+TARGET_CHAT_IDS = [
+    -1003744652244,
+]
 
 # No hardcoded TARGET_CHAT_IDS.
 # Groups and channels are discovered from Telegram dialogs.
