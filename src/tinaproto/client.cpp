@@ -10,8 +10,20 @@
 
 #include "tinaproto/client.hpp"
 #include "logger.hpp"
+#include <unordered_map>
+#include <vector>
 
 namespace tinaproto {
+
+namespace {
+std::mutex g_pool_mutex;
+std::vector<TinaProtoClient*> g_clients;
+std::vector<std::unique_ptr<TinaProtoClient>> g_extra_clients;
+std::unordered_map<int64_t, size_t> g_chat_session;
+std::vector<bool> g_session_busy;
+std::function<void(int64_t)> g_stream_end_callback;
+}
+
 
 TinaProtoClient& TinaProtoClient::GetInstance() {
     static TinaProtoClient instance;
@@ -22,6 +34,84 @@ TinaProtoClient::TinaProtoClient() = default;
 
 TinaProtoClient::~TinaProtoClient() = default;
 
+bool TinaProtoClient::InitializePool(const std::vector<std::string>& sessions, int32_t api_id,
+                                     const std::string& api_hash) {
+    std::vector<std::string> usable;
+    for (const auto& session : sessions) if (!session.empty()) usable.push_back(session);
+    if (usable.empty()) {
+        Logger::Error("TINAPROTO", "No STRING_SESSIONS configured");
+        return false;
+    }
+
+    std::lock_guard<std::mutex> pool_lock(g_pool_mutex);
+    if (!g_clients.empty()) return g_clients.size() == usable.size();
+
+    TinaProtoClient& primary = GetInstance();
+    if (!primary.Initialize(usable.front(), api_id, api_hash, "data/peer_cache.json")) return false;
+    g_clients.push_back(&primary);
+    g_session_busy.push_back(false);
+
+    for (size_t i = 1; i < usable.size(); ++i) {
+        auto client = std::make_unique<TinaProtoClient>();
+        const std::string cache_path = "data/peer_cache_" + std::to_string(i + 1) + ".json";
+        if (!client->Initialize(usable[i], api_id, api_hash, cache_path)) {
+            Logger::Error("TINAPROTO", "Failed to initialize assistant session " + std::to_string(i + 1));
+            return false;
+        }
+        client->SetOnStreamEnd(g_stream_end_callback);
+        g_clients.push_back(client.get());
+        g_extra_clients.push_back(std::move(client));
+        g_session_busy.push_back(false);
+    }
+    Logger::Info("TINAPROTO", "Initialized " + std::to_string(g_clients.size()) +
+                 " independent assistant session(s) for concurrent group calls");
+    return true;
+}
+
+TinaProtoClient* TinaProtoClient::ForChat(int64_t chat_id) {
+    std::lock_guard<std::mutex> lock(g_pool_mutex);
+    auto existing = g_chat_session.find(chat_id);
+    if (existing != g_chat_session.end() && existing->second < g_clients.size()) return g_clients[existing->second];
+    for (size_t i = 0; i < g_clients.size(); ++i) {
+        if (!g_session_busy[i]) {
+            g_session_busy[i] = true;
+            g_chat_session[chat_id] = i;
+            Logger::Info("TINAPROTO", "Assigned assistant session " + std::to_string(i + 1) +
+                         " to chat " + std::to_string(chat_id));
+            return g_clients[i];
+        }
+    }
+    Logger::Warn("TINAPROTO", "No free assistant session for chat " + std::to_string(chat_id) +
+                 "; configure one STRING_SESSIONS entry per concurrent voice chat");
+    return nullptr;
+}
+
+TinaProtoClient* TinaProtoClient::FindForChat(int64_t chat_id) {
+    std::lock_guard<std::mutex> lock(g_pool_mutex);
+    auto existing = g_chat_session.find(chat_id);
+    if (existing == g_chat_session.end() || existing->second >= g_clients.size()) return nullptr;
+    return g_clients[existing->second];
+}
+
+void TinaProtoClient::ReleaseChat(int64_t chat_id) {
+    std::lock_guard<std::mutex> lock(g_pool_mutex);
+    auto existing = g_chat_session.find(chat_id);
+    if (existing == g_chat_session.end()) return;
+    if (existing->second < g_session_busy.size()) g_session_busy[existing->second] = false;
+    g_chat_session.erase(existing);
+}
+
+void TinaProtoClient::SetOnStreamEndForAll(std::function<void(int64_t)> cb) {
+    std::lock_guard<std::mutex> lock(g_pool_mutex);
+    g_stream_end_callback = std::move(cb);
+    for (auto* client : g_clients) if (client) client->SetOnStreamEnd(g_stream_end_callback);
+}
+
+size_t TinaProtoClient::SessionCount() {
+    std::lock_guard<std::mutex> lock(g_pool_mutex);
+    return g_clients.size();
+}
+
 std::string TinaProtoClient::BuildFfmpegCommand(const std::string& url) {
     std::string base = "ffmpeg ";
     if (url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0) {
@@ -31,7 +121,8 @@ std::string TinaProtoClient::BuildFfmpegCommand(const std::string& url) {
     return base;
 }
 
-bool TinaProtoClient::Initialize(const std::string& session_str, int32_t api_id, const std::string& api_hash) {
+bool TinaProtoClient::Initialize(const std::string& session_str, int32_t api_id, const std::string& api_hash,
+                                 const std::string& peer_cache_path) {
     (void)api_hash;
     std::lock_guard<std::mutex> lock(mtx_);
     if (initialized_) {
@@ -54,7 +145,9 @@ bool TinaProtoClient::Initialize(const std::string& session_str, int32_t api_id,
         return false;
     }
 
-    mtproto_.LoadPeerCache("data/peer_cache.json");
+    if (!mtproto_.LoadPeerCache(peer_cache_path)) {
+        Logger::Warn("TINAPROTO", "Peer cache could not be loaded from " + peer_cache_path + "; playback may fail for channels absent from cache");
+    }
 
     if (!voice_binding_.Init()) {
         Logger::Error("TINAPROTO", "Failed to initialize native NTgCalls engine");
