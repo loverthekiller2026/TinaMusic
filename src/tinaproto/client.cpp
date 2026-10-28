@@ -242,6 +242,12 @@ StreamResult TinaProtoClient::Play(int64_t chat_id, const std::string& stream_ur
         result.ok = false;
         result.error = "JOIN_GROUP_CALL_FAILED";
         result.detail = "Telegram MTProto rejected joinGroupCall or returned empty transport";
+        Logger::Error(
+            "TINAPROTO",
+            "Playback startup failed for chat " + std::to_string(chat_id) +
+            " [" + result.error + "]: " + result.detail +
+            ". Check assistant account membership, voice-chat permissions, group-call state, and MTProto peer access."
+        );
         return result;
     }
 
