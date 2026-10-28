@@ -854,6 +854,8 @@ void BotEngine::HandleFPlay(const TgMessage& msg, const std::string& query) {
     std::string chat_uname = msg.chat.username;
     auto result = AudioEngine::Instance().StartPlayback(msg.chat.id, streamUrl, 0, 1.0, 100, invite_link, chat_uname);
     if (!result.ok) {
+        AudioEngine::Instance().StopPlayback(msg.chat.id);
+        QueueManager::Instance().Clear(msg.chat.id);
         std::string err_text;
         if (result.error == "NO_ACTIVE_GROUP_CALL") {
             err_text = lm.F(msg.chat.id, "err_no_active_voicechat");
