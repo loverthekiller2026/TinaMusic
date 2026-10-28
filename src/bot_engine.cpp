@@ -1101,7 +1101,17 @@ void BotEngine::HandleSkip(const TgMessage& msg) {
     auto next = qm.Next(msg.chat.id);
     if (next.has_value()) {
         std::string streamUrl = next->stream_url.empty() ? next->url : next->stream_url;
-        AudioEngine::Instance().StartPlayback(msg.chat.id, streamUrl);
+        auto result = AudioEngine::Instance().StartPlayback(msg.chat.id, streamUrl);
+        if (!result.ok) {
+            AudioEngine::Instance().StopPlayback(msg.chat.id);
+            const std::string error_text = "❌ <b>Playback failed.</b>\\n<code>" + result.error + "</code>";
+            if (wait_msg > 0) {
+                tg_->EditMessageText(msg.chat.id, wait_msg, error_text);
+            } else {
+                tg_->SendMessage(msg.chat.id, error_text);
+            }
+            return;
+        }
         ChatConfig cfg = Database::Instance().GetChatConfig(msg.chat.id);
         std::string thumb = "🎵";
         if (cfg.show_thumbnails && !next->thumbnail_url.empty()) {
@@ -1137,7 +1147,17 @@ void BotEngine::HandleSkip(const TgMessage& msg) {
         if (autoTrack.has_value()) {
             qm.Enqueue(msg.chat.id, *autoTrack);
             std::string streamUrl = autoTrack->stream_url.empty() ? autoTrack->url : autoTrack->stream_url;
-            AudioEngine::Instance().StartPlayback(msg.chat.id, streamUrl);
+            auto result = AudioEngine::Instance().StartPlayback(msg.chat.id, streamUrl);
+            if (!result.ok) {
+                AudioEngine::Instance().StopPlayback(msg.chat.id);
+                const std::string error_text = "❌ <b>Playback failed.</b>\\n<code>" + result.error + "</code>";
+                if (wait_msg > 0) {
+                    tg_->EditMessageText(msg.chat.id, wait_msg, error_text);
+                } else {
+                    tg_->SendMessage(msg.chat.id, error_text);
+                }
+                return;
+            }
             ChatConfig cfg = Database::Instance().GetChatConfig(msg.chat.id);
             std::string thumb = "🎵";
             if (cfg.show_thumbnails && !autoTrack->thumbnail_url.empty()) {
@@ -1977,7 +1997,14 @@ void BotEngine::ProcessCallback(const TgCallbackQuery& cb) {
                 auto next = qm.Next(chat_id);
                 if (next.has_value()) {
                     std::string streamUrl = next->stream_url.empty() ? next->url : next->stream_url;
-                    AudioEngine::Instance().StartPlayback(chat_id, streamUrl);
+                    auto result = AudioEngine::Instance().StartPlayback(chat_id, streamUrl);
+                    if (!result.ok) {
+                        AudioEngine::Instance().StopPlayback(chat_id);
+                        tg_->AnswerCallbackQuery(cb.id, "Playback failed: " + result.error);
+                        tg_->EditMessageText(chat_id, msg_id,
+                            "❌ <b>Playback failed.</b>\\n<code>" + result.error + "</code>", nullptr);
+                        return;
+                    }
                     ChatConfig cfg = Database::Instance().GetChatConfig(chat_id);
                     std::string thumb = "🎵";
                     if (cfg.show_thumbnails && !next->thumbnail_url.empty()) {
@@ -2000,7 +2027,14 @@ void BotEngine::ProcessCallback(const TgCallbackQuery& cb) {
                     if (autoTrack.has_value()) {
                         qm.Enqueue(chat_id, *autoTrack);
                         std::string streamUrl = autoTrack->stream_url.empty() ? autoTrack->url : autoTrack->stream_url;
-                        AudioEngine::Instance().StartPlayback(chat_id, streamUrl);
+                        auto result = AudioEngine::Instance().StartPlayback(chat_id, streamUrl);
+                        if (!result.ok) {
+                            AudioEngine::Instance().StopPlayback(chat_id);
+                            tg_->AnswerCallbackQuery(cb.id, "Playback failed: " + result.error);
+                            tg_->EditMessageText(chat_id, msg_id,
+                                "❌ <b>Playback failed.</b>\\n<code>" + result.error + "</code>", nullptr);
+                            return;
+                        }
                         ChatConfig cfg = Database::Instance().GetChatConfig(chat_id);
                         std::string thumb = "🎵";
                         if (cfg.show_thumbnails && !autoTrack->thumbnail_url.empty()) {
