@@ -344,7 +344,17 @@ void BotEngine::Run() {
     Logger::Info("BOT", "Starting Telegram polling loop (C++20 Native Engine)...");
     tg_->TestConnection();
 
+    // The HTTP health process uses this timestamp to distinguish a live bot
+    // from a container whose web server is alive but whose bot loop is stuck.
+    auto last_heartbeat = std::chrono::steady_clock::time_point{};
     while (is_running_ && g_shutdown_requested == 0) {
+        const auto heartbeat_now = std::chrono::steady_clock::now();
+        if (last_heartbeat == std::chrono::steady_clock::time_point{} ||
+            heartbeat_now - last_heartbeat >= std::chrono::seconds(10)) {
+            std::ofstream heartbeat("/tmp/tinamusic-bot-heartbeat", std::ios::trunc);
+            if (heartbeat) heartbeat << "alive\\n";
+            last_heartbeat = heartbeat_now;
+        }
         std::vector<TgUpdate> updates;
         try {
             updates = tg_->GetUpdates(last_update_id_ + 1, 15);
