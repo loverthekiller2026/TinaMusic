@@ -1104,6 +1104,7 @@ void BotEngine::HandleSkip(const TgMessage& msg) {
         auto result = AudioEngine::Instance().StartPlayback(msg.chat.id, streamUrl);
         if (!result.ok) {
             AudioEngine::Instance().StopPlayback(msg.chat.id);
+            qm.Clear(msg.chat.id);
             const std::string error_text = "❌ <b>Playback failed.</b>\n<code>" + result.error + "</code>";
             if (wait_msg > 0) {
                 tg_->EditMessageText(msg.chat.id, wait_msg, error_text);
@@ -1150,6 +1151,7 @@ void BotEngine::HandleSkip(const TgMessage& msg) {
             auto result = AudioEngine::Instance().StartPlayback(msg.chat.id, streamUrl);
             if (!result.ok) {
                 AudioEngine::Instance().StopPlayback(msg.chat.id);
+                qm.Clear(msg.chat.id);
                 const std::string error_text = "❌ <b>Playback failed.</b>\n<code>" + result.error + "</code>";
                 if (wait_msg > 0) {
                     tg_->EditMessageText(msg.chat.id, wait_msg, error_text);
@@ -2000,6 +2002,7 @@ void BotEngine::ProcessCallback(const TgCallbackQuery& cb) {
                     auto result = AudioEngine::Instance().StartPlayback(chat_id, streamUrl);
                     if (!result.ok) {
                         AudioEngine::Instance().StopPlayback(chat_id);
+                        qm.Clear(chat_id);
                         tg_->AnswerCallbackQuery(cb.id, "Playback failed: " + result.error);
                         tg_->EditMessageText(chat_id, msg_id,
                             "❌ <b>Playback failed.</b>\n<code>" + result.error + "</code>", nullptr);
@@ -2030,6 +2033,7 @@ void BotEngine::ProcessCallback(const TgCallbackQuery& cb) {
                         auto result = AudioEngine::Instance().StartPlayback(chat_id, streamUrl);
                         if (!result.ok) {
                             AudioEngine::Instance().StopPlayback(chat_id);
+                            qm.Clear(chat_id);
                             tg_->AnswerCallbackQuery(cb.id, "Playback failed: " + result.error);
                             tg_->EditMessageText(chat_id, msg_id,
                                 "❌ <b>Playback failed.</b>\n<code>" + result.error + "</code>", nullptr);
@@ -2303,6 +2307,10 @@ void BotEngine::OnTrackEnded(int64_t chat_id) {
                 {"by", next->requester_name}
             });
             tg_->SendMessage(chat_id, now_playing, MakePlayerMarkup(chat_id, 0, 240));
+        } else {
+            AudioEngine::Instance().StopPlayback(chat_id);
+            qm.Clear(chat_id);
+            tg_->SendMessage(chat_id, "❌ <b>Next track failed to start.</b> <code>" + res.error + "</code>");
         }
     } else if (Database::Instance().IsAutoplayEnabled(chat_id)) {
         std::string cur_title = ended_track->title;
@@ -2328,6 +2336,10 @@ void BotEngine::OnTrackEnded(int64_t chat_id) {
                     {"by", "🎵 Autoplay"}
                 });
                 tg_->SendMessage(chat_id, now_playing, MakePlayerMarkup(chat_id, 0, 240));
+            } else {
+                AudioEngine::Instance().StopPlayback(chat_id);
+                qm.Clear(chat_id);
+                tg_->SendMessage(chat_id, "❌ <b>Autoplay track failed to start.</b> <code>" + res.error + "</code>");
             }
         } else {
             // No related track was found; release this assistant session for other groups.
