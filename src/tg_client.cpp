@@ -40,7 +40,23 @@ std::string TelegramClient::PerformRequest(const std::string& method, const nloh
     if (res != CURLE_OK) {
         Logger::Error("TELEGRAM", std::string("Curl request failed: ") + curl_easy_strerror(res));
     } else if (!response_string.empty()) {
-        if (response_string.find("\"ok\":false") != std::string::npos || response_string.find("\"ok\": false") != std::string::npos) {
+        if (method == "getUpdates") {
+            try {
+                const auto response = nlohmann::json::parse(response_string);
+                if (response.value("error_code", 0) == 409 &&
+                    response.value("description", std::string{}).find("terminated by other getUpdates request") != std::string::npos) {
+                    polling_conflict_.store(true);
+                    Logger::Error(
+                        "TELEGRAM",
+                        "Polling conflict detected: another process is using getUpdates with this BOT_TOKEN. "
+                        "This instance will stop polling; stop duplicate deployments/local processes and keep one poller."
+                    );
+                }
+            } catch (const std::exception& e) {
+                Logger::Warn("TELEGRAM", std::string("Could not inspect getUpdates response: ") + e.what());
+            }
+        }
+        if (response_string.find("\\"ok\\":false") != std::string::npos || response_string.find("\\"ok\\": false") != std::string::npos) {
             Logger::Warn("TELEGRAM", "API Error [" + method + "]: " + response_string);
         }
     }
