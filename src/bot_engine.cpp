@@ -16,6 +16,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <csignal>
+#include <exception>
 
 extern volatile std::sig_atomic_t g_shutdown_requested;
 
