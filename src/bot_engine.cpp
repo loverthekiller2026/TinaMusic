@@ -764,6 +764,12 @@ void BotEngine::HandlePlay(const TgMessage& msg, const std::string& query) {
                 }
                 if (wait_id > 0) tg_->EditMessageText(msg.chat.id, wait_id, err_text);
                 else tg_->SendMessage(msg.chat.id, err_text);
+            } else if (result.error == "PEER_CACHE_MISS") {
+                err_text = "<blockquote>⚠️ <b>Telegram peer cache is missing for this group.</b>\\n\\n"
+                           "<i>Set TARGET_CHAT_IDS=" + std::to_string(msg.chat.id) +
+                           " in the host environment, restart the service, and verify the assistant account is a member of this group.</i></blockquote>";
+                if (wait_id > 0) tg_->EditMessageText(msg.chat.id, wait_id, err_text);
+                else tg_->SendMessage(msg.chat.id, err_text);
             } else if (result.error == "ASSISTANT_NOT_IN_CHAT" || result.detail.find("missing from cache") != std::string::npos || result.detail.find("no channel with id") != std::string::npos || result.detail.find("no chat with id") != std::string::npos) {
                 std::string ass_user = AudioEngine::Instance().GetAssistantUsername();
                 if (ass_user.empty()) ass_user = "Yzcxxy";
@@ -862,6 +868,11 @@ void BotEngine::HandleFPlay(const TgMessage& msg, const std::string& query) {
             if (err_text == "[err_no_active_voicechat]" || err_text.empty()) {
                 err_text = "<blockquote>⚠️ <b>No active Voice Chat found in this group!</b>\n\n<i>Please start a Video/Voice Chat in group settings and try again.</i></blockquote>";
             }
+            tg_->SendMessage(msg.chat.id, err_text);
+        } else if (result.error == "PEER_CACHE_MISS") {
+            err_text = "<blockquote>⚠️ <b>Telegram peer cache is missing for this group.</b>\\n\\n"
+                       "<i>Set TARGET_CHAT_IDS=" + std::to_string(msg.chat.id) +
+                       " in the host environment, restart the service, and verify the assistant account is a member of this group.</i></blockquote>";
             tg_->SendMessage(msg.chat.id, err_text);
         } else if (result.error == "ASSISTANT_NOT_IN_CHAT" || result.detail.find("missing from cache") != std::string::npos || result.detail.find("no channel with id") != std::string::npos || result.detail.find("no chat with id") != std::string::npos) {
             std::string ass_user = AudioEngine::Instance().GetAssistantUsername();
