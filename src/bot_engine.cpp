@@ -369,11 +369,31 @@ void BotEngine::Run() {
     }
 
     is_running_ = false;
+    if (g_shutdown_requested != 0) {
+        Logger::Warn("BOT", "Polling loop exited because SIGINT/SIGTERM shutdown was requested by the host or process supervisor.");
+    } else if (tg_->HasPollingConflict()) {
+        Logger::Error("BOT", "Polling loop exited after repeated Telegram HTTP 409 duplicate-poller conflicts.");
+    } else {
+        Logger::Info("BOT", "Polling loop exited because BotEngine::Stop() was requested.");
+    }
     Logger::Info("BOT", "Polling loop stopped.");
 }
 
 void BotEngine::ProcessMessage(const TgMessage& msg) {
     if (msg.text.empty()) return;
+
+    // Only handle commands posted in Telegram groups/supergroups. Do not
+    // register, log, or parse ordinary conversation messages or private chats.
+    if (msg.chat.type != "group" && msg.chat.type != "supergroup") return;
+    if (msg.from.is_bot) return;
+
+    std::stringstream prefix_stream(msg.text);
+    std::string first_token;
+    prefix_stream >> first_token;
+    if (first_token.empty() ||
+        (first_token[0] != '/' && first_token[0] != '!' && first_token[0] != '.')) {
+        return;
+    }
 
     // Telegram group commands may be explicitly addressed to another bot,
     // for example /end@WordGridRobot. Ignore those before logging or dispatching
