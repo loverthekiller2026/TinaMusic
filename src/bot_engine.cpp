@@ -15,6 +15,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <csignal>
+
+extern volatile std::sig_atomic_t g_shutdown_requested;
 
 BotEngine::BotEngine(const AppConfig& config)
     : config_(config), tg_(std::make_unique<TelegramClient>(config.bot_token)), boot_time_(std::chrono::steady_clock::now()) {
@@ -340,7 +343,7 @@ void BotEngine::Run() {
     Logger::Info("BOT", "Starting Telegram polling loop (C++20 Native Engine)...");
     tg_->TestConnection();
 
-    while (is_running_) {
+    while (is_running_ && g_shutdown_requested == 0) {
         std::vector<TgUpdate> updates = tg_->GetUpdates(last_update_id_ + 1, 15);
         if (tg_->HasPollingConflict()) {
             Logger::Error(
@@ -364,6 +367,9 @@ void BotEngine::Run() {
         ProcessPendingTrackEnds();
         std::this_thread::sleep_for(std::chrono::milliseconds(40));
     }
+
+    is_running_ = false;
+    Logger::Info("BOT", "Polling loop stopped.");
 }
 
 void BotEngine::ProcessMessage(const TgMessage& msg) {
