@@ -42,6 +42,7 @@
 
 #include <string>
 #include <vector>
+#include <atomic>
 #include <nlohmann/json.hpp>
 
 struct TgUser {
@@ -87,6 +88,7 @@ public:
     ~TelegramClient();
 
     bool TestConnection();
+    bool HasPollingConflict() const { return polling_conflict_.load(); }
     std::string GetBotUsername() const;
     std::string GetBotFirstName() const;
     std::vector<TgUpdate> GetUpdates(int64_t offset = 0, int timeout = 25);
@@ -101,6 +103,7 @@ private:
     std::string api_base_url_;
     std::string bot_username_{"TinaMusicBot"};
     std::string bot_first_name_{"TinaMusic"};
+    std::atomic_bool polling_conflict_{false};
 
     std::string PerformRequest(const std::string& method, const nlohmann::json& payload);
     static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp);
