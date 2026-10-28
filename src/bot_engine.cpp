@@ -371,6 +371,8 @@ void BotEngine::Run() {
     is_running_ = false;
     if (g_shutdown_requested != 0) {
         Logger::Warn("BOT", "Polling loop exited because SIGINT/SIGTERM shutdown was requested by the host or process supervisor.");
+    } else if (tg_->HasPollingConflict()) {
+        Logger::Error("BOT", "Polling loop exited after repeated Telegram HTTP 409 duplicate-poller conflicts.");
     } else {
         Logger::Info("BOT", "Polling loop exited because BotEngine::Stop() was requested.");
     }
