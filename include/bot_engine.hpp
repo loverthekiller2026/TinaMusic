@@ -60,6 +60,7 @@ public:
     BotEngine(const AppConfig& config);
     void Run();
     void Stop();
+    bool HasPollingConflict() const;
 
 private:
     void ProcessMessage(const TgMessage& msg);

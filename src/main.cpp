@@ -75,6 +75,16 @@ int main(int argc, char* argv[]) {
     g_bot = std::make_unique<BotEngine>(config);
     g_bot->Run();
 
+    if (g_bot->HasPollingConflict()) {
+        Logger::Error(
+            "SYSTEM",
+            "Exiting because another process is polling Telegram with the same BOT_TOKEN. "
+            "Stop duplicate instances before restarting TinaMusic."
+        );
+        curl_global_cleanup();
+        return 2;
+    }
+
     curl_global_cleanup();
     Logger::Info("SYSTEM", "TinaMusic C++ Engine stopped.");
     return 0;

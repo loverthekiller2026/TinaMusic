@@ -4,6 +4,7 @@ services:
     runtime: docker
     dockerfilePath: Dockerfile
     plan: free
+    numInstances: 1
     region: oregon
     envVars:
       - key: API_ID
