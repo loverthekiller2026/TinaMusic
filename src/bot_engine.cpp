@@ -765,7 +765,7 @@ void BotEngine::HandlePlay(const TgMessage& msg, const std::string& query) {
                 if (wait_id > 0) tg_->EditMessageText(msg.chat.id, wait_id, err_text);
                 else tg_->SendMessage(msg.chat.id, err_text);
             } else if (result.error == "PEER_CACHE_MISS") {
-                err_text = "<blockquote>⚠️ <b>Telegram peer cache is missing for this group.</b>\\n\\n"
+                err_text = "<blockquote>⚠️ <b>Telegram peer cache is missing for this group.</b>\n\n"
                            "<i>Set TARGET_CHAT_IDS=" + std::to_string(msg.chat.id) +
                            " in the host environment, restart the service, and verify the assistant account is a member of this group.</i></blockquote>";
                 if (wait_id > 0) tg_->EditMessageText(msg.chat.id, wait_id, err_text);
@@ -870,7 +870,7 @@ void BotEngine::HandleFPlay(const TgMessage& msg, const std::string& query) {
             }
             tg_->SendMessage(msg.chat.id, err_text);
         } else if (result.error == "PEER_CACHE_MISS") {
-            err_text = "<blockquote>⚠️ <b>Telegram peer cache is missing for this group.</b>\\n\\n"
+            err_text = "<blockquote>⚠️ <b>Telegram peer cache is missing for this group.</b>\n\n"
                        "<i>Set TARGET_CHAT_IDS=" + std::to_string(msg.chat.id) +
                        " in the host environment, restart the service, and verify the assistant account is a member of this group.</i></blockquote>";
             tg_->SendMessage(msg.chat.id, err_text);
