@@ -250,37 +250,35 @@ async def build_cache(session_string, cache_path):
                 continue
 
             channel_id = str(raw_channel_id)
-            if channel_id in cache["InputChannels"]:
-                print(
-                    f"[TARGET_LOOKUP] chat_id={target_chat_id} "
-                    f"channel_id={channel_id} already exists in cache"
-                )
-                continue
+            previous_hash = cache["InputChannels"].pop(channel_id, None)
+            print(
+                f"[TARGET_LOOKUP] Refreshing chat_id={target_chat_id} "
+                f"channel_id={channel_id} "
+                f"previous_entry={'present' if previous_hash is not None else 'missing'}"
+            )
 
-            print(f"[TARGET_LOOKUP] Attempting chat_id={target_chat_id}")
-
-            
             try:
                 chat = await app.get_chat(target_chat_id)
                 result = await cache_peer(app, chat, cache)
 
                 if result == "channel":
                     print(
-                        f"[TARGET_LOOKUP] Successfully cached "
+                        f"[TARGET_LOOKUP] Refreshed peer cache for "
                         f"chat_id={target_chat_id}"
                     )
                     resolved += 1
                 else:
+                    failed += 1
                     print(
                         f"[TARGET_LOOKUP] Unsupported peer type "
-                        f"for chat_id={target_chat_id}"
+                        f"for chat_id={target_chat_id}; stale entry was removed"
                     )
 
             except Exception as exc:
                 failed += 1
                 print(
                     f"[TARGET_LOOKUP_ERROR] chat_id={target_chat_id} "
-                    f"type={type(exc).__name__} error={exc}"
+                    f"type={type(exc).__name__} error={exc}; stale entry was removed"
                 )
 
 
