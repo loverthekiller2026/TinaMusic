@@ -4,7 +4,7 @@ on:
   schedule:
     # Render Free web services sleep after a period without inbound HTTP traffic.
     # Ping the existing health endpoint before that idle window expires.
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -14,15 +14,16 @@ jobs:
     steps:
       - name: Ping Render health endpoint
         env:
-          RENDER_HEALTH_URL: ${{ secrets.RENDER_HEALTH_URL }}
+          RENDER_HEALTH_URL: ${{ secrets.RENDER_HEALTH_URL || 'https://tinamusic-utgc.onrender.com' }}
         shell: bash
         run: |
           if [[ -z "${RENDER_HEALTH_URL}" ]]; then
-            echo "::warning::Add the repository Actions secret RENDER_HEALTH_URL with the base URL of the Render service (for example, https://your-service.onrender.com)."
-            exit 0
+            echo "::error::No Render health URL configured."
+            exit 1
           fi
 
           HEALTH_URL="${RENDER_HEALTH_URL%/}/health"
+          echo "Checking TinaMusic health endpoint: ${HEALTH_URL}"
           for attempt in 1 2 3 4 5 6; do
             echo "Health check attempt ${attempt}/6"
             if curl --fail --silent --show-error --connect-timeout 10 --max-time 20 "${HEALTH_URL}"; then
