@@ -712,6 +712,11 @@ std::optional<InputGroupCall> MtprotoClient::GetGroupCall(int64_t chat_id) {
 std::string MtprotoClient::JoinGroupCall(int64_t chat_id, const std::string& local_sdp_json) {
     auto call_opt = GetGroupCall(chat_id);
     if (!call_opt) {
+        Logger::Error(
+            "TINAPROTO",
+            "Cannot call phone.joinGroupCall for chat " + std::to_string(chat_id) +
+            ": no active InputGroupCall could be resolved from Telegram."
+        );
         return "";
     }
     const auto& call = *call_opt;
@@ -762,6 +767,14 @@ std::string MtprotoClient::JoinGroupCall(int64_t chat_id, const std::string& loc
         }
     }
 
+    // The RPC returned data, but no usable WebRTC transport was decoded.
+    // Log at the MTProto boundary so Render captures the underlying failure,
+    // even if the user-facing Telegram message is the only other symptom.
+    Logger::Error(
+        "TINAPROTO",
+        "phone.joinGroupCall returned no usable WebRTC transport for chat " +
+        std::to_string(chat_id) + " (response bytes=" + std::to_string(resp.size()) + ")."
+    );
     // Keep the call reference so the caller can best-effort leave a possibly
     // joined server-side participant before retrying playback.
     return "{\"transport\": null}";
