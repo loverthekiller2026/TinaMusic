@@ -122,11 +122,17 @@ size_t TinaProtoClient::SessionCount() {
 }
 
 std::string TinaProtoClient::BuildFfmpegCommand(const std::string& url) {
-    std::string base = "ffmpeg ";
+    // Keep diagnostics visible in Render logs. Quiet mode hid HTTP, decoder, and
+    // input-EOF failures that otherwise look like the assistant randomly stopped.
+    std::string base = "ffmpeg -hide_banner -nostdin -loglevel warning ";
     if (url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0) {
-        base += "-reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 2 ";
+        // Retry transient network/HTTP failures, but do not reconnect at EOF:
+        // these are finite song URLs, so EOF must be allowed to advance the queue.
+        base += "-rw_timeout 15000000 -reconnect 1 -reconnect_streamed 1 "
+                "-reconnect_on_network_error 1 -reconnect_on_http_error 429,5xx "
+                "-reconnect_delay_max 5 ";
     }
-    base += "-v quiet -i \"" + url + "\" -f s16le -ac 2 -ar 48000 pipe:1";
+    base += "-i \"" + url + "\" -f s16le -ac 2 -ar 48000 pipe:1";
     return base;
 }
 
