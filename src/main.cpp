@@ -12,11 +12,13 @@
 
 static std::unique_ptr<BotEngine> g_bot;
 
+// Signal handlers may only set a sig_atomic_t flag. Logging and touching the
+// BotEngine from a POSIX signal handler is not async-signal-safe.
+volatile std::sig_atomic_t g_shutdown_requested = 0;
+
 void SignalHandler(int signum) {
-    Logger::Info("SYSTEM", "Received signal " + std::to_string(signum) + ", shutting down cleanly...");
-    if (g_bot) {
-        g_bot->Stop();
-    }
+    (void)signum;
+    g_shutdown_requested = 1;
 }
 
 int main(int argc, char* argv[]) {

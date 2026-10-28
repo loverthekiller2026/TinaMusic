@@ -1,0 +1,37 @@
+name: Keep TinaMusic awake on Render Free
+
+on:
+  schedule:
+    # Render Free web services sleep after a period without inbound HTTP traffic.
+    # Ping the existing health endpoint before that idle window expires.
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping Render health endpoint
+        env:
+          RENDER_HEALTH_URL: ${{ secrets.RENDER_HEALTH_URL }}
+        shell: bash
+        run: |
+          if [[ -z "${RENDER_HEALTH_URL}" ]]; then
+            echo "::warning::Add the repository Actions secret RENDER_HEALTH_URL with the base URL of the Render service (for example, https://your-service.onrender.com)."
+            exit 0
+          fi
+
+          HEALTH_URL="${RENDER_HEALTH_URL%/}/health"
+          for attempt in 1 2 3 4 5 6; do
+            echo "Health check attempt ${attempt}/6"
+            if curl --fail --silent --show-error --connect-timeout 10 --max-time 20 "${HEALTH_URL}"; then
+              echo
+              echo "TinaMusic health endpoint responded successfully."
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "::error::TinaMusic health endpoint did not respond after retries."
+          exit 1
