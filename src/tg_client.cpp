@@ -43,14 +43,26 @@ std::string TelegramClient::PerformRequest(const std::string& method, const nloh
         if (method == "getUpdates") {
             try {
                 const auto response = nlohmann::json::parse(response_string);
-                if (response.value("error_code", 0) == 409 &&
-                    response.value("description", std::string{}).find("terminated by other getUpdates request") != std::string::npos) {
-                    polling_conflict_.store(true);
-                    Logger::Error(
-                        "TELEGRAM",
-                        "Polling conflict detected: another process is using getUpdates with this BOT_TOKEN. "
-                        "This instance will stop polling; stop duplicate deployments/local processes and keep one poller."
-                    );
+                const bool duplicate_poller =
+                    response.value("error_code", 0) == 409 &&
+                    response.value("description", std::string{}).find("terminated by other getUpdates request") != std::string::npos;
+                if (duplicate_poller) {
+                    const int conflict_count = polling_conflict_count_.fetch_add(1) + 1;
+                    if (conflict_count >= 3) {
+                        Logger::Error(
+                            "TELEGRAM",
+                            "Repeated polling conflict detected: another process is using getUpdates with this BOT_TOKEN. "
+                            "This instance will stop polling; stop duplicate deployments/local processes and keep one poller."
+                        );
+                    } else {
+                        Logger::Warn(
+                            "TELEGRAM",
+                            "Polling conflict " + std::to_string(conflict_count) +
+                            "/3. This can happen briefly during a deployment; repeated conflicts will stop this instance."
+                        );
+                    }
+                } else if (response.value("ok", false)) {
+                    polling_conflict_count_.store(0);
                 }
             } catch (const std::exception& e) {
                 Logger::Warn("TELEGRAM", std::string("Could not inspect getUpdates response: ") + e.what());
