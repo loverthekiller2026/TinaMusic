@@ -38,8 +38,11 @@ std::string TelegramClient::PerformRequest(const std::string& method, const nloh
 
     CURLcode res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
+        if (method == "getUpdates") polling_conflict_count_.store(0);
         Logger::Error("TELEGRAM", std::string("Curl request failed: ") + curl_easy_strerror(res));
-    } else if (!response_string.empty()) {
+    } else if (response_string.empty()) {
+        if (method == "getUpdates") polling_conflict_count_.store(0);
+    } else {
         if (method == "getUpdates") {
             try {
                 const auto response = nlohmann::json::parse(response_string);
@@ -68,8 +71,13 @@ std::string TelegramClient::PerformRequest(const std::string& method, const nloh
                 Logger::Warn("TELEGRAM", std::string("Could not inspect getUpdates response: ") + e.what());
             }
         }
-        if (response_string.find("\\"ok\\":false") != std::string::npos || response_string.find("\\"ok\\": false") != std::string::npos) {
-            Logger::Warn("TELEGRAM", "API Error [" + method + "]: " + response_string);
+        try {
+            const auto response = nlohmann::json::parse(response_string);
+            if (!response.value("ok", true)) {
+                Logger::Warn("TELEGRAM", "API Error [" + method + "]: " + response_string);
+            }
+        } catch (const std::exception& e) {
+            Logger::Warn("TELEGRAM", std::string("Invalid API response [") + method + "]: " + e.what());
         }
     }
 
