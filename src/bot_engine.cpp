@@ -1104,7 +1104,7 @@ void BotEngine::HandleSkip(const TgMessage& msg) {
         auto result = AudioEngine::Instance().StartPlayback(msg.chat.id, streamUrl);
         if (!result.ok) {
             AudioEngine::Instance().StopPlayback(msg.chat.id);
-            const std::string error_text = "❌ <b>Playback failed.</b>\\n<code>" + result.error + "</code>";
+            const std::string error_text = "❌ <b>Playback failed.</b>\n<code>" + result.error + "</code>";
             if (wait_msg > 0) {
                 tg_->EditMessageText(msg.chat.id, wait_msg, error_text);
             } else {
@@ -1150,7 +1150,7 @@ void BotEngine::HandleSkip(const TgMessage& msg) {
             auto result = AudioEngine::Instance().StartPlayback(msg.chat.id, streamUrl);
             if (!result.ok) {
                 AudioEngine::Instance().StopPlayback(msg.chat.id);
-                const std::string error_text = "❌ <b>Playback failed.</b>\\n<code>" + result.error + "</code>";
+                const std::string error_text = "❌ <b>Playback failed.</b>\n<code>" + result.error + "</code>";
                 if (wait_msg > 0) {
                     tg_->EditMessageText(msg.chat.id, wait_msg, error_text);
                 } else {
@@ -2002,7 +2002,7 @@ void BotEngine::ProcessCallback(const TgCallbackQuery& cb) {
                         AudioEngine::Instance().StopPlayback(chat_id);
                         tg_->AnswerCallbackQuery(cb.id, "Playback failed: " + result.error);
                         tg_->EditMessageText(chat_id, msg_id,
-                            "❌ <b>Playback failed.</b>\\n<code>" + result.error + "</code>", nullptr);
+                            "❌ <b>Playback failed.</b>\n<code>" + result.error + "</code>", nullptr);
                         return;
                     }
                     ChatConfig cfg = Database::Instance().GetChatConfig(chat_id);
@@ -2032,7 +2032,7 @@ void BotEngine::ProcessCallback(const TgCallbackQuery& cb) {
                             AudioEngine::Instance().StopPlayback(chat_id);
                             tg_->AnswerCallbackQuery(cb.id, "Playback failed: " + result.error);
                             tg_->EditMessageText(chat_id, msg_id,
-                                "❌ <b>Playback failed.</b>\\n<code>" + result.error + "</code>", nullptr);
+                                "❌ <b>Playback failed.</b>\n<code>" + result.error + "</code>", nullptr);
                             return;
                         }
                         ChatConfig cfg = Database::Instance().GetChatConfig(chat_id);
