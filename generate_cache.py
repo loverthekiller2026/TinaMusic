@@ -245,6 +245,7 @@ async def build_cache(session_string, cache_path):
     scanned = 0
     resolved = 0
     failed = 0
+    target_ids_refreshed = set()
 
     try:
         print("[CACHE] Starting automatic Telegram peer discovery...")
@@ -271,6 +272,8 @@ async def build_cache(session_string, cache_path):
 
                 if result is not None:
                     resolved += 1
+                if chat.id in TARGET_CHAT_IDS and result == "channel":
+                    target_ids_refreshed.add(chat.id)
 
             except Exception as exc:
                 failed += 1
@@ -282,6 +285,13 @@ async def build_cache(session_string, cache_path):
         # Explicit targets are always refreshed, even when an entry already exists.
         # A failed refresh removes the stale access hash rather than retaining it.
         for target_chat_id in TARGET_CHAT_IDS:
+            if target_chat_id in target_ids_refreshed:
+                print(
+                    f"[TARGET_LOOKUP] chat_id={target_chat_id} "
+                    "was refreshed successfully during dialog scan"
+                )
+                continue
+
             refreshed = await refresh_target_peer(app, target_chat_id, cache)
             if refreshed is True:
                 resolved += 1
