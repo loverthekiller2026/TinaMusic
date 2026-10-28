@@ -46,6 +46,7 @@ jobs:
       run: |
         python3 -m py_compile generate_cache.py
         bash -n start.sh
+        python3 -m unittest discover -s tests -p 'test_*.py'
 
     - name: Run Test Suite
       run: |

@@ -137,6 +137,8 @@ async def cache_peer(app, chat, cache):
         access_hash = int(peer.access_hash)
         if int(channel_id) <= 0:
             raise ValueError(f"Invalid Telegram channel ID returned by resolve_peer: {channel_id}")
+        if access_hash == 0:
+            raise ValueError(f"Telegram returned an empty access hash for channel {channel_id}")
 
         is_new = channel_id not in cache["InputChannels"]
 
@@ -176,6 +178,45 @@ async def cache_peer(app, chat, cache):
     return None
 
 
+async def refresh_target_peer(app, target_chat_id, cache):
+    """Replace one targeted channel entry with a freshly resolved access hash."""
+
+    raw_channel_id = channel_id_from_chat_id(target_chat_id)
+    if raw_channel_id is None:
+        print(
+            f"[TARGET_LOOKUP] Skipping chat_id={target_chat_id}: "
+            "not a supergroup/channel ID"
+        )
+        return None
+
+    channel_id = str(raw_channel_id)
+    previous_hash = cache["InputChannels"].pop(channel_id, None)
+    print(
+        f"[TARGET_LOOKUP] Refreshing chat_id={target_chat_id} "
+        f"channel_id={channel_id} "
+        f"previous_entry={'present' if previous_hash is not None else 'missing'}"
+    )
+
+    try:
+        chat = await app.get_chat(target_chat_id)
+        result = await cache_peer(app, chat, cache)
+        if result != "channel":
+            print(
+                f"[TARGET_LOOKUP] Unsupported peer type for chat_id={target_chat_id}; "
+                "stale entry was removed"
+            )
+            return False
+
+        print(f"[TARGET_LOOKUP] Refreshed peer cache for chat_id={target_chat_id}")
+        return True
+    except Exception as exc:
+        print(
+            f"[TARGET_LOOKUP_ERROR] chat_id={target_chat_id} "
+            f"type={type(exc).__name__} error={exc}; stale entry was removed"
+        )
+        return False
+
+
 # --------------------------------------------------
 # MAIN
 # --------------------------------------------------
@@ -204,6 +245,7 @@ async def build_cache(session_string, cache_path):
     scanned = 0
     resolved = 0
     failed = 0
+    target_ids_refreshed = set()
 
     try:
         print("[CACHE] Starting automatic Telegram peer discovery...")
@@ -230,6 +272,8 @@ async def build_cache(session_string, cache_path):
 
                 if result is not None:
                     resolved += 1
+                if chat.id in TARGET_CHAT_IDS and result == "channel":
+                    target_ids_refreshed.add(chat.id)
 
             except Exception as exc:
                 failed += 1
@@ -238,50 +282,21 @@ async def build_cache(session_string, cache_path):
                     f"title={title!r} error={exc}"
                 )
 
-        # Optional fallback for configured IDs that did not appear in dialogs.
-        # This list is not required for normal discovery.
+        # Explicit targets are always refreshed, even when an entry already exists.
+        # A failed refresh removes the stale access hash rather than retaining it.
         for target_chat_id in TARGET_CHAT_IDS:
-            raw_channel_id = channel_id_from_chat_id(target_chat_id)
-            if raw_channel_id is None:
-                print(
-                    f"[TARGET_LOOKUP] Skipping chat_id={target_chat_id}: "
-                    "not a supergroup/channel ID"
-                )
-                continue
-
-            channel_id = str(raw_channel_id)
-            if channel_id in cache["InputChannels"]:
+            if target_chat_id in target_ids_refreshed:
                 print(
                     f"[TARGET_LOOKUP] chat_id={target_chat_id} "
-                    f"channel_id={channel_id} already exists in cache"
+                    "was refreshed successfully during dialog scan"
                 )
                 continue
 
-            print(f"[TARGET_LOOKUP] Attempting chat_id={target_chat_id}")
-
-            
-            try:
-                chat = await app.get_chat(target_chat_id)
-                result = await cache_peer(app, chat, cache)
-
-                if result == "channel":
-                    print(
-                        f"[TARGET_LOOKUP] Successfully cached "
-                        f"chat_id={target_chat_id}"
-                    )
-                    resolved += 1
-                else:
-                    print(
-                        f"[TARGET_LOOKUP] Unsupported peer type "
-                        f"for chat_id={target_chat_id}"
-                    )
-
-            except Exception as exc:
+            refreshed = await refresh_target_peer(app, target_chat_id, cache)
+            if refreshed is True:
+                resolved += 1
+            elif refreshed is False:
                 failed += 1
-                print(
-                    f"[TARGET_LOOKUP_ERROR] chat_id={target_chat_id} "
-                    f"type={type(exc).__name__} error={exc}"
-                )
 
 
         # Save discovered entries while retaining existing entries.

@@ -159,6 +159,7 @@ docker compose logs -f
 | `API_HASH` | **Yes** | Telegram App API Hash from [my.telegram.org](https://my.telegram.org) | `abcdef0123456789...` |
 | `BOT_TOKEN` | **Yes** | Telegram Bot Token from [@BotFather](https://t.me/BotFather) | `123456:ABC-DEF...` |
 | `STRING_SESSION` | **Yes** | One Pyrogram assistant session string. This single account can play in one group voice chat at a time; it must be a member of the target group and have access to its voice chat. `STRING_SESSIONS` is accepted as a backward-compatible alias for a single value. | `YOUR_SESSION_STRING` |
+| `TARGET_CHAT_IDS` | No | Comma-separated supergroup/channel IDs to force-refresh from Telegram during startup. Use this when a peer-cache entry may be stale; each assistant session must have access to the group. | `-1001836385176` |
 | `SESSION_TYPE` | No | Session string format (`pyrogram` or `telethon`, default: `pyrogram`) | `pyrogram` |
 | `OWNER_ID` | **Yes** | Telegram User ID of the primary owner | `620476130` |
 | `MONGO_DB_URI` | No | MongoDB URI for persistent settings & auth lists | `mongodb://...` |

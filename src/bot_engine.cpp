@@ -764,6 +764,12 @@ void BotEngine::HandlePlay(const TgMessage& msg, const std::string& query) {
                 }
                 if (wait_id > 0) tg_->EditMessageText(msg.chat.id, wait_id, err_text);
                 else tg_->SendMessage(msg.chat.id, err_text);
+            } else if (result.error == "PEER_CACHE_MISS") {
+                err_text = "<blockquote>⚠️ <b>Telegram peer cache is missing for this group.</b>\n\n"
+                           "<i>Set TARGET_CHAT_IDS=" + std::to_string(msg.chat.id) +
+                           " in the host environment, restart the service, and verify the assistant account is a member of this group.</i></blockquote>";
+                if (wait_id > 0) tg_->EditMessageText(msg.chat.id, wait_id, err_text);
+                else tg_->SendMessage(msg.chat.id, err_text);
             } else if (result.error == "ASSISTANT_NOT_IN_CHAT" || result.detail.find("missing from cache") != std::string::npos || result.detail.find("no channel with id") != std::string::npos || result.detail.find("no chat with id") != std::string::npos) {
                 std::string ass_user = AudioEngine::Instance().GetAssistantUsername();
                 if (ass_user.empty()) ass_user = "Yzcxxy";
@@ -854,12 +860,19 @@ void BotEngine::HandleFPlay(const TgMessage& msg, const std::string& query) {
     std::string chat_uname = msg.chat.username;
     auto result = AudioEngine::Instance().StartPlayback(msg.chat.id, streamUrl, 0, 1.0, 100, invite_link, chat_uname);
     if (!result.ok) {
+        AudioEngine::Instance().StopPlayback(msg.chat.id);
+        QueueManager::Instance().Clear(msg.chat.id);
         std::string err_text;
         if (result.error == "NO_ACTIVE_GROUP_CALL") {
             err_text = lm.F(msg.chat.id, "err_no_active_voicechat");
             if (err_text == "[err_no_active_voicechat]" || err_text.empty()) {
                 err_text = "<blockquote>⚠️ <b>No active Voice Chat found in this group!</b>\n\n<i>Please start a Video/Voice Chat in group settings and try again.</i></blockquote>";
             }
+            tg_->SendMessage(msg.chat.id, err_text);
+        } else if (result.error == "PEER_CACHE_MISS") {
+            err_text = "<blockquote>⚠️ <b>Telegram peer cache is missing for this group.</b>\n\n"
+                       "<i>Set TARGET_CHAT_IDS=" + std::to_string(msg.chat.id) +
+                       " in the host environment, restart the service, and verify the assistant account is a member of this group.</i></blockquote>";
             tg_->SendMessage(msg.chat.id, err_text);
         } else if (result.error == "ASSISTANT_NOT_IN_CHAT" || result.detail.find("missing from cache") != std::string::npos || result.detail.find("no channel with id") != std::string::npos || result.detail.find("no chat with id") != std::string::npos) {
             std::string ass_user = AudioEngine::Instance().GetAssistantUsername();
@@ -1104,6 +1117,7 @@ void BotEngine::HandleSkip(const TgMessage& msg) {
         auto result = AudioEngine::Instance().StartPlayback(msg.chat.id, streamUrl);
         if (!result.ok) {
             AudioEngine::Instance().StopPlayback(msg.chat.id);
+            qm.Clear(msg.chat.id);
             const std::string error_text = "❌ <b>Playback failed.</b>\n<code>" + result.error + "</code>";
             if (wait_msg > 0) {
                 tg_->EditMessageText(msg.chat.id, wait_msg, error_text);
@@ -1150,6 +1164,7 @@ void BotEngine::HandleSkip(const TgMessage& msg) {
             auto result = AudioEngine::Instance().StartPlayback(msg.chat.id, streamUrl);
             if (!result.ok) {
                 AudioEngine::Instance().StopPlayback(msg.chat.id);
+                qm.Clear(msg.chat.id);
                 const std::string error_text = "❌ <b>Playback failed.</b>\n<code>" + result.error + "</code>";
                 if (wait_msg > 0) {
                     tg_->EditMessageText(msg.chat.id, wait_msg, error_text);
@@ -2000,6 +2015,7 @@ void BotEngine::ProcessCallback(const TgCallbackQuery& cb) {
                     auto result = AudioEngine::Instance().StartPlayback(chat_id, streamUrl);
                     if (!result.ok) {
                         AudioEngine::Instance().StopPlayback(chat_id);
+                        qm.Clear(chat_id);
                         tg_->AnswerCallbackQuery(cb.id, "Playback failed: " + result.error);
                         tg_->EditMessageText(chat_id, msg_id,
                             "❌ <b>Playback failed.</b>\n<code>" + result.error + "</code>", nullptr);
@@ -2030,6 +2046,7 @@ void BotEngine::ProcessCallback(const TgCallbackQuery& cb) {
                         auto result = AudioEngine::Instance().StartPlayback(chat_id, streamUrl);
                         if (!result.ok) {
                             AudioEngine::Instance().StopPlayback(chat_id);
+                            qm.Clear(chat_id);
                             tg_->AnswerCallbackQuery(cb.id, "Playback failed: " + result.error);
                             tg_->EditMessageText(chat_id, msg_id,
                                 "❌ <b>Playback failed.</b>\n<code>" + result.error + "</code>", nullptr);
@@ -2303,6 +2320,10 @@ void BotEngine::OnTrackEnded(int64_t chat_id) {
                 {"by", next->requester_name}
             });
             tg_->SendMessage(chat_id, now_playing, MakePlayerMarkup(chat_id, 0, 240));
+        } else {
+            AudioEngine::Instance().StopPlayback(chat_id);
+            qm.Clear(chat_id);
+            tg_->SendMessage(chat_id, "❌ <b>Next track failed to start.</b> <code>" + res.error + "</code>");
         }
     } else if (Database::Instance().IsAutoplayEnabled(chat_id)) {
         std::string cur_title = ended_track->title;
@@ -2328,6 +2349,10 @@ void BotEngine::OnTrackEnded(int64_t chat_id) {
                     {"by", "🎵 Autoplay"}
                 });
                 tg_->SendMessage(chat_id, now_playing, MakePlayerMarkup(chat_id, 0, 240));
+            } else {
+                AudioEngine::Instance().StopPlayback(chat_id);
+                qm.Clear(chat_id);
+                tg_->SendMessage(chat_id, "❌ <b>Autoplay track failed to start.</b> <code>" + res.error + "</code>");
             }
         } else {
             // No related track was found; release this assistant session for other groups.

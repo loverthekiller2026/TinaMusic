@@ -185,6 +185,20 @@ StreamResult TinaProtoClient::Play(int64_t chat_id, const std::string& stream_ur
         return result;
     }
 
+    if (chat_id <= -1000000000000LL) {
+        int64_t channel_id = 0;
+        int64_t access_hash = 0;
+        if (!mtproto_.ResolveChannel(chat_id, channel_id, access_hash)) {
+            result.ok = false;
+            result.error = "PEER_CACHE_MISS";
+            result.detail = "No Telegram peer-cache access hash for channel " +
+                std::to_string(channel_id) +
+                "; refresh TARGET_CHAT_IDS and verify assistant membership";
+            return result;
+        }
+        (void)access_hash;
+    }
+
     std::string cmd = BuildFfmpegCommand(stream_url);
 
     if (voice_binding_.HasActiveCall(chat_id)) {
