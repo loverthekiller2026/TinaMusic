@@ -4,6 +4,7 @@ services:
     runtime: docker
     dockerfilePath: Dockerfile
     plan: free
+    healthCheckPath: /health
     numInstances: 1
     region: oregon
     envVars:
