@@ -2,7 +2,7 @@
   <img src="assets/banner.png" alt="TinaMusic Banner" width="100%">
 </p>
 
-<h1 align="center">🌸 TinaMusic ⚡ Telegram's First Native 100% Pure C++20 Music Engine</h1>
+<h1 align="center">🌸《ᴤᴛᴲᴎᴣᴌᴇ᚛〄᚜ᴹᴀᴙᴉᴀ》⚡ Telegram's First Native 100% Pure C++20 Music Engine</h1>
 
 <p align="center">
   <b>The pioneer, high-performance Telegram music bot crafted 100% entirely in modern compiled C++20 with the in-process TinaProto native MTProto & WebRTC voice engine. Zero Go, Zero Python, Zero auxiliary processes.</b>
@@ -14,9 +14,6 @@
   <img src="https://img.shields.io/badge/Engine-TinaProto_Native-FF1493?style=for-the-badge&logo=cplusplus" alt="TinaProto Native">
   <img src="https://img.shields.io/badge/RAM-Under_20MB-success?style=for-the-badge" alt="Under 20MB RAM">
   <img src="https://img.shields.io/badge/License-GNU_AGPLv3-blue?style=for-the-badge" alt="AGPLv3">
-  <img src="https://img.shields.io/badge/Cloud_Ready-Heroku%20%7C%20Render%20%7C%20Railway-brightgreen?style=for-the-badge" alt="Cloud Ready">
-</p>
-
 ---
 
 <p align="center">
@@ -44,11 +41,6 @@ Traditional Telegram music bots written in Python (Pyrogram & PyTgCalls) suffer 
 
 ---
 
-## ☁️ Cloud Deployments: Heroku, Render & Railway
-
-> [!NOTE]
-> Because TinaMusic uses only **~30 MB of RAM**, it runs smoothly 24/7 on free/starter tiers of Heroku, Render, and Railway without encountering `R14 - Memory Quota Exceeded` errors!
-
 ### 💜 1. Deploy on Heroku
 
 [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy)
@@ -70,84 +62,6 @@ Traditional Telegram music bots written in Python (Pyrogram & PyTgCalls) suffer 
 4. Add your `.env` variables under the Environment tab.
 5. Click **Deploy**. Your bot will build and start streaming within minutes on Render's free tier!
 
-### 🚂 3. Deploy on Railway
-
-1. Open [Railway](https://railway.app/) and create a new project.
-2. Select **Deploy from GitHub repo** and choose `TinaMusic`.
-3. Railway automatically recognizes `railway.json` and the multi-stage `Dockerfile`.
-4. Go to **Variables** and paste your environment keys from `sample.env`.
-5. Railway deploys the container instantly with automated health restarts!
-
----
-
-## 📐 Architecture & Dataflow
-
-```mermaid
-flowchart LR
-    User["Telegram Group / User"] -->|Commands: /play, /pause, /skip| TGAPI["Telegram Bot API"]
-    TGAPI -->|libcurl Polling / Webhook| Core["TinaMusic Core (C++20)"]
-    
-    subgraph SingleBinary ["100% Pure C++20 Single Binary (bin/tina-music-bot)"]
-        Core --> Queue["Thread-Safe Queue Manager"]
-        Core --> Resolver["Yuki CDN & InnerTube Resolver"]
-        Core --> Locales["Dynamic YAML Localization"]
-        Core -->|In-Process C++ Call| TinaProto["TinaProto MTProto Client"]
-        TinaProto -->|C-ABI In-Process Link| NTgCalls["libntgcalls WebRTC Engine"]
-        NTgCalls --> FFmpeg["FFmpeg PCM Transcoder"]
-        NTgCalls -.->|In-Memory Callback OnStreamEnd| Core
-    end
-    
-    NTgCalls -->|WebRTC RTP Audio Packets| VC["Telegram Group Voice Chat"]
-```
-
----
-
-## 🛠️ Local VPS Installation & Setup
-
-### Automated Installer (Debian, Ubuntu, Fedora, Arch)
-
-```bash
-git clone https://github.com/your-username/TinaMusic.git
-cd TinaMusic
-chmod +x install.sh
-./install.sh
-```
-
-The installer installs system compilers, downloads prebuilt `libntgcalls` WebRTC static libraries, sets up `.env`, and builds the 100% pure C++20 single binary.
-
-### Manual Compilation
-
-```bash
-# 1. Clone repository
-git clone https://github.com/your-username/TinaMusic.git
-cd TinaMusic
-
-# 2. Setup environment variables
-cp sample.env .env
-nano .env
-
-# 3. Compile sequentially (preserves memory on small VPS nodes)
-make -j1
-
-# 4. Launch bot
-./start.sh
-```
-
----
-
-## 🐳 Docker & Docker Compose
-
-```bash
-# Copy and configure environment variables
-cp sample.env .env
-nano .env
-
-# Build and start in background
-docker compose up -d --build
-
-# Inspect live logs
-docker compose logs -f
-```
 
 ---
 
@@ -197,26 +111,3 @@ docker compose logs -f
 | `/unauth` | `[reply / username]` | Revoke administrative privileges from a user |
 
 ---
-
-## ⚖️ Strict Copyleft License Notice
-
-TinaMusic is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
-
-```
-TinaMusic - Telegram's First Native C++20 Music Engine
-Copyright (C) 2026 SUDEEPBOTS / TinaMusic Contributors
-Support: https://t.me/Z0iiw
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-```
-
-> [!WARNING]
-> **Copyleft Protection**: Under AGPL-3.0, if you modify, host, or distribute TinaMusic (including network-hosted services), you **MUST** provide the complete corresponding source code to all users under the AGPLv3. Rebranding or deploying proprietary, closed-source forks is strictly forbidden.
