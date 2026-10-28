@@ -9,6 +9,7 @@
 #include <csignal>
 #include <memory>
 #include <vector>
+#include <exception>
 
 static std::unique_ptr<BotEngine> g_bot;
 
@@ -74,8 +75,18 @@ int main(int argc, char* argv[]) {
         Logger::Info("STARTUP", "Pure C++20 TinaProto voice engine ready and operational");
     }
 
-    g_bot = std::make_unique<BotEngine>(config);
-    g_bot->Run();
+    try {
+        g_bot = std::make_unique<BotEngine>(config);
+        g_bot->Run();
+    } catch (const std::exception& e) {
+        Logger::Error("FATAL", std::string("Unhandled exception escaped the bot engine: ") + e.what());
+        curl_global_cleanup();
+        return 1;
+    } catch (...) {
+        Logger::Error("FATAL", "Unknown exception escaped the bot engine.");
+        curl_global_cleanup();
+        return 1;
+    }
 
     if (g_bot->HasPollingConflict()) {
         Logger::Error(
