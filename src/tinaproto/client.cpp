@@ -196,6 +196,7 @@ StreamResult TinaProtoClient::Play(int64_t chat_id, const std::string& stream_ur
                 "; refresh TARGET_CHAT_IDS and verify assistant membership";
             return result;
         }
+        (void)access_hash;
     }
 
     std::string cmd = BuildFfmpegCommand(stream_url);
