@@ -64,7 +64,7 @@ std::string TelegramClient::PerformRequest(const std::string& method, const nloh
                             "/3. This can happen briefly during a deployment; repeated conflicts will stop this instance."
                         );
                     }
-                } else if (response.value("ok", false)) {
+                } else {
                     polling_conflict_count_.store(0);
                 }
             } catch (const std::exception& e) {
