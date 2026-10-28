@@ -16,6 +16,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <csignal>
+#include <exception>
 
 extern volatile std::sig_atomic_t g_shutdown_requested;
 
@@ -343,8 +344,29 @@ void BotEngine::Run() {
     Logger::Info("BOT", "Starting Telegram polling loop (C++20 Native Engine)...");
     tg_->TestConnection();
 
+    // The HTTP health process uses this timestamp to distinguish a live bot
+    // from a container whose web server is alive but whose bot loop is stuck.
+    auto last_heartbeat = std::chrono::steady_clock::time_point{};
     while (is_running_ && g_shutdown_requested == 0) {
-        std::vector<TgUpdate> updates = tg_->GetUpdates(last_update_id_ + 1, 15);
+        const auto heartbeat_now = std::chrono::steady_clock::now();
+        if (last_heartbeat == std::chrono::steady_clock::time_point{} ||
+            heartbeat_now - last_heartbeat >= std::chrono::seconds(10)) {
+            std::ofstream heartbeat("/tmp/tinamusic-bot-heartbeat", std::ios::trunc);
+            if (heartbeat) heartbeat << "alive\\n";
+            last_heartbeat = heartbeat_now;
+        }
+        std::vector<TgUpdate> updates;
+        try {
+            updates = tg_->GetUpdates(last_update_id_ + 1, 15);
+        } catch (const std::exception& e) {
+            Logger::Error("BOT", std::string("Telegram polling request threw an exception; retrying: ") + e.what());
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            continue;
+        } catch (...) {
+            Logger::Error("BOT", "Telegram polling request threw an unknown exception; retrying.");
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            continue;
+        }
         if (tg_->HasPollingConflict()) {
             Logger::Error(
                 "BOT",
@@ -358,10 +380,18 @@ void BotEngine::Run() {
                 last_update_id_ = u.update_id;
             }
 
-            if (u.has_message) {
-                ProcessMessage(u.message);
-            } else if (u.has_callback) {
-                ProcessCallback(u.callback_query);
+            try {
+                if (u.has_message) {
+                    ProcessMessage(u.message);
+                } else if (u.has_callback) {
+                    ProcessCallback(u.callback_query);
+                }
+            } catch (const std::exception& e) {
+                Logger::Error("BOT", "Exception while processing Telegram update " +
+                    std::to_string(u.update_id) + ": " + e.what());
+            } catch (...) {
+                Logger::Error("BOT", "Unknown exception while processing Telegram update " +
+                    std::to_string(u.update_id));
             }
         }
         ProcessPendingTrackEnds();
@@ -2319,7 +2349,15 @@ void BotEngine::ProcessPendingTrackEnds() {
 
         // Run queue advancement and Telegram API calls on the bot thread, not
         // on an NTgCalls callback thread that may be inside AudioEngine locks.
-        OnTrackEnded(chat_id);
+        try {
+            OnTrackEnded(chat_id);
+        } catch (const std::exception& e) {
+            Logger::Error("AUDIO", "Exception while advancing playback for chat " +
+                std::to_string(chat_id) + ": " + e.what());
+        } catch (...) {
+            Logger::Error("AUDIO", "Unknown exception while advancing playback for chat " +
+                std::to_string(chat_id));
+        }
 
         {
             std::lock_guard<std::mutex> lock(track_end_mutex_);
