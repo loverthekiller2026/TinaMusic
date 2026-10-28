@@ -26,6 +26,10 @@ void BotEngine::Stop() {
     Logger::Info("BOT", "Stopping polling loop...");
 }
 
+bool BotEngine::HasPollingConflict() const {
+    return tg_ && tg_->HasPollingConflict();
+}
+
 std::string BotEngine::GetUptimeString() {
     auto now = std::chrono::steady_clock::now();
     auto sec = std::chrono::duration_cast<std::chrono::seconds>(now - boot_time_).count();
@@ -338,6 +342,14 @@ void BotEngine::Run() {
 
     while (is_running_) {
         std::vector<TgUpdate> updates = tg_->GetUpdates(last_update_id_ + 1, 15);
+        if (tg_->HasPollingConflict()) {
+            Logger::Error(
+                "BOT",
+                "Stopping polling after Telegram HTTP 409. Keep exactly one live instance using this BOT_TOKEN."
+            );
+            is_running_ = false;
+            break;
+        }
         for (const auto& u : updates) {
             if (u.update_id > last_update_id_) {
                 last_update_id_ = u.update_id;
