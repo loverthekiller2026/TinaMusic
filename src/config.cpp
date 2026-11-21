@@ -104,19 +104,19 @@ AppConfig ConfigLoader::Load(const std::string& env_path) {
 
     cfg.string_session = GetEnvVar("STRING_SESSIONS", GetEnvVar("STRING_SESSION", ""));
     cfg.session_type = GetEnvVar("SESSION_TYPE", "pyrogram");
-    cfg.support_chat = GetEnvVar("SUPPORT_CHAT", "https://t.me/Z0iiw");
-    cfg.support_channel = GetEnvVar("SUPPORT_CHANNEL", "https://t.me/Z0iiw");
+    cfg.support_chat = GetEnvVar("SUPPORT_CHAT", "https://t.me/sector_bot_support");
+    cfg.support_channel = GetEnvVar("SUPPORT_CHANNEL", "https://t.me/HQ_Tracks");
     cfg.default_lang = GetEnvVar("DEFAULT_LANG", "en");
 
-    std::string dur_str = GetEnvVar("DURATION_LIMIT", "4200");
+    std::string dur_str = GetEnvVar("DURATION_LIMIT", "8500");
     try { cfg.duration_limit = std::stoi(dur_str); } catch (...) {}
 
     std::string queue_str = GetEnvVar("QUEUE_LIMIT", "24");
     try { cfg.max_queue_size = std::stoi(queue_str); } catch (...) {}
 
     cfg.default_platform = GetEnvVar("DEFAULT_PLATFORM", "YouTube");
-    cfg.spotify_client_id = GetEnvVar("SPOTIFY_CLIENT_ID", "");
-    cfg.spotify_client_secret = GetEnvVar("SPOTIFY_CLIENT_SECRET", "");
+    cfg.spotify_client_id = GetEnvVar("SPOTIFY_CLIENT_ID", "9425d31a334c4d2c9ad191da51d45737");
+    cfg.spotify_client_secret = GetEnvVar("SPOTIFY_CLIENT_SECRET", "2a0a3ad201664cb3acca240057f59066");
     cfg.yuki_api_url = GetEnvVar("YUKI_API_URL", GetEnvVar("API_URL", "https://music.yukiapi.site"));
     cfg.yuki_api_key = GetEnvVar("YUKI_API_KEY", GetEnvVar("API_KEY", "yuki_96fcd2d09a8d4f1e36896505bd6ebda8"));
     cfg.music_api_url = GetEnvVar("MUSIC_API_URL", GetEnvVar("STREAM_API_URL", "https://music.yukiapi.site/stream/{VIDEO_ID}?key=yuki_96fcd2d09a8d4f1e36896505bd6ebda8"));
