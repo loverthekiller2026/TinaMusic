@@ -53,14 +53,14 @@ struct AppConfig {
     int64_t log_group_id{0};
     std::string string_session;
     std::string session_type{"pyrogram"};
-    std::string support_chat{"https://t.me/Z0iiw"};
-    std::string support_channel{"https://t.me/Z0iiw"};
+    std::string support_chat{"https://t.me/sector_bot_support"};
+    std::string support_channel{"https://t.me/HQ_Tracks"};
     std::string default_lang{"en"};
     int duration_limit{4200};
     int max_queue_size{24};
     std::string default_platform{"YouTube"};
-    std::string spotify_client_id;
-    std::string spotify_client_secret;
+    std::string spotify_client_id{"9425d31a334c4d2c9ad191da51d45737"};
+    std::string spotify_client_secret{"2a0a3ad201664cb3acca240057f59066"};
     std::string yuki_api_url{"https://music.yukiapi.site"};
     std::string yuki_api_key{"yuki_96fcd2d09a8d4f1e36896505bd6ebda8"};
     std::string music_api_url{"https://music.yukiapi.site/stream/{VIDEO_ID}?key=yuki_96fcd2d09a8d4f1e36896505bd6ebda8"};
